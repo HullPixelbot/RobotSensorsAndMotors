@@ -1,9 +1,9 @@
 #include <Adafruit_NeoPixel.h>
 
-#define PIXELS 16
+#define PIXELS 12
 #define VERSION 1
 
-#define NO_OF_LIGHTS 16
+#define NO_OF_LIGHTS 12
 
 #define TICK_INTERVAL 20
 
@@ -1107,5 +1107,29 @@ void updateLightsAndDelay()
 	}
 }
 
+// Pixel position for busy display
+byte pixelPos = 0;
 
+void updateBusyPixel()
+{
+
+	// turn off the current pixel dot
+	setLightColor(0, 0, 0, pixelPos);
+
+	pixelPos++;
+
+	if (pixelPos == PIXELS)
+		pixelPos = 0;
+
+	setLightColor(128, 128, 128, pixelPos);
+
+	updateLights();
+}
+
+void startBusyPixel()
+{
+	setAllLightsOff();
+	pixelPos = 0;
+	updateBusyPixel();
+}
 

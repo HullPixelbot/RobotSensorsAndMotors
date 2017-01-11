@@ -21,6 +21,7 @@
 
 // Distance sensor trigger 3, echo 2
 
+#include <EEPROM.h>
 #include <TimerOne.h>
 
 //#define VERBOSE
@@ -38,24 +39,27 @@
 
 #include "Commands.h"
 
-#include "RobotAI.h"
-
 void setup() {
 	Serial.begin(9600);
-	Serial.println(".Version 0.5 Starting");
+	Serial.println(".Version 0.6 Starting");
 	setupRobotNotors();
-  setupDistanceSensor();
+	setupDistanceSensor();
 	setupRemoteControl();
 	startLights();
 	flickeringColouredLights(220, 208, 255, 0, 200);
 	transitionToRandomColor();
 	randomiseLights();
 	renderLights();
+
+	loadTestProgram(STORED_PROGRAM_OFFSET);
+
+	startProgramExecution(STORED_PROGRAM_OFFSET);
+
+	startBusyPixel();
 }
 
 
 void loop() {
-
 	// Read characters and pump them into the command decoder
 
 	while (CharsAvailable())
@@ -64,8 +68,7 @@ void loop() {
 		processCommandByte(b);
 	}
 
+	updateProgramExcecution();
+
 	updateLightsAndDelay();
-
-//	robotAI();
-
 }

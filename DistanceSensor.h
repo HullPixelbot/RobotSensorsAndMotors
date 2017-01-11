@@ -36,9 +36,9 @@ void pulseEvent()
   }
 }
 
-float getDistanceValue()
+int getDistanceValue()
 {
-  return pulseWidth / 58.2;
+  return (int) (pulseWidth / 58.2 + 0.5);
 }
 
 void setupDistanceSensor()
