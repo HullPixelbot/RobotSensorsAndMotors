@@ -51,8 +51,6 @@ void setup() {
 	randomiseLights();
 	renderLights();
 
-	loadTestProgram(STORED_PROGRAM_OFFSET);
-
 	startProgramExecution(STORED_PROGRAM_OFFSET);
 
 	startBusyPixel();
@@ -60,15 +58,8 @@ void setup() {
 
 
 void loop() {
-	// Read characters and pump them into the command decoder
-
-	while (CharsAvailable())
-	{
-		byte b = GetRawCh();
-		processCommandByte(b);
-	}
 
 	updateProgramExcecution();
-
 	updateLightsAndDelay();
+
 }

@@ -23,6 +23,7 @@ byte downloadChecksum;
 enum ProgramState
 {
 	PROGRAM_STOPPED,
+	PROGRAM_PAUSED,
 	PROGRAM_ACTIVE,
 	PROGRAM_AWAITING_MOVE_COMPLETION,
 	PROGRAM_AWAITING_DELAY_COMPLETION,
@@ -48,7 +49,7 @@ long delayEndTime;
 
 // Set program terminator to string end
 // This is the EOT character
-#define PROGRAM_TERMINATOR 0x04
+#define PROGRAM_TERMINATOR 0x00
 
 char remoteCommand[COMMAND_BUFFER_SIZE];
 char * commandPos;
@@ -76,7 +77,7 @@ void startProgramExecution(int programPosition)
 	programState = PROGRAM_ACTIVE;
 }
 
-void stopProgramExecution()
+void haltProgramExecution()
 {
 #ifdef PROGRAM_DEBUG
 	Serial.print(".Ending program execution at: ");
@@ -85,6 +86,39 @@ void stopProgramExecution()
 
 	programState = PROGRAM_STOPPED;
 }
+
+void pauseProgramExecution()
+{
+#ifdef PROGRAM_DEBUG
+	Serial.print(".Pausing program execution at: ");
+	Serial.println(programCounter);
+#endif
+
+	programState = PROGRAM_PAUSED;
+}
+
+void resumeProgramExecution()
+{
+#ifdef PROGRAM_DEBUG
+	Serial.print(".Resuming program execution at: ");
+	Serial.println(programCounter);
+#endif
+
+	if (programState == PROGRAM_PAUSED)
+	{
+		// Can resume the program
+		programState = PROGRAM_ACTIVE;
+		Serial.println("+Resume");
+	}
+	else
+	{
+		Serial.print("State: ");
+		Serial.println(programState);
+		Serial.println("-Resume can only resume from paused state");
+	}
+}
+
+
 
 // Stores a program byte into the eeprom at the stated location
 // The pos value is the offset in the EEProm into which the program is to be written
@@ -157,7 +191,7 @@ void startDownloadingCode(int downloadPosition)
 #endif
 
 	// Stop the current program
-	stopProgramExecution();
+	haltProgramExecution();
 
 	deviceState = DOWNLOADING_CODE;
 
@@ -174,6 +208,8 @@ void startDownloadingCode(int downloadPosition)
 // If the byte is the terminator byte (zero) it changes to the "wait for checksum" state
 // for the program checksum
 
+#define STORE_RECEIVED_BYTE_DEBUG
+
 void storeReceivedByte(byte b)
 {
 	// Store the byte - overlong programs will fail silently at the moment.....
@@ -185,7 +221,9 @@ void storeReceivedByte(byte b)
 			updateBusyPixel();
 	}
 
+#ifdef STORE_RECEIVED_BYTE_DEBUG
 	Serial.println(b);
+#endif
 
 	// Add the value onto the checksum
 	downloadChecksum += b;
@@ -193,7 +231,11 @@ void storeReceivedByte(byte b)
 	// Have we reached the end of the program?
 	if (b == PROGRAM_TERMINATOR)
 	{
+
+#ifdef STORE_RECEIVED_BYTE_DEBUG
 		Serial.println("Got the program terminator");
+#endif
+
 		// end of the code - wait for the checksum
 		deviceState = DOWNLOADING_CHECKSUM;
 	}
@@ -203,23 +245,21 @@ void storeReceivedByte(byte b)
 // Starts the program running it the checksum is valid
 void processReceivedChecksum(byte b)
 {
-	b = downloadChecksum;
 	if (b == downloadChecksum)
 	{
 		// Yay = got a checksum match!
-		Serial.println("OK");
+		Serial.println("+Download OK");
 		dumpProgramFromEEPROM(STORED_PROGRAM_OFFSET);
 		startProgramExecution(STORED_PROGRAM_OFFSET);
-		deviceState = ACCEPTING_COMMANDS;
 	}
 	else
 	{
-		Serial.println("Bad checksum");
-		Serial.print("Calculated: ");
+		Serial.print("-Download Bad checksum. Calculated: ");
 		Serial.print((byte)downloadChecksum);
 		Serial.print("Received: ");
 		Serial.println((byte)b);
 	}
+	deviceState = ACCEPTING_COMMANDS;
 }
 
 
@@ -335,7 +375,7 @@ void remoteMoveForwards()
 	Serial.println(forwardMoveDistance);
 #endif
 
-	Serial.println("OK");
+	Serial.println("+Forwards");
 
 	moveRobot(forwardMoveDistance, forwardMoveDistance, remoteLeftSpeed, remoteRightSpeed);
 }
@@ -378,7 +418,7 @@ void remoteRotateRobot()
 	Serial.println(rotateAngle);
 #endif
 
-	Serial.println("OK");
+	Serial.println("+Rotate");
 
 	rotateRobot(rotateAngle, remoteRotateSpeed);
 
@@ -917,6 +957,20 @@ void jumpToLabel()
 	}
 }
 
+
+// Command CA - pause when motors active
+// Return OK when the pause is started
+
+void pauseWhenMotorsActive()
+{
+#ifdef PAUSE_MOTORS_ACTIVE_DEBUG
+	Serial.println(".**pause while the motors are active");
+#endif
+	programState = PROGRAM_AWAITING_MOVE_COMPLETION;
+
+	Serial.println("OK");
+}
+
 // Command CMddd,ccc
 // Jump to label if distance is less than given value
 
@@ -988,6 +1042,55 @@ void measureDistanceAndJump()
 	// otherwise do nothing
 }
 
+// Command CIccc
+// Jump to label if the motors are not running
+
+#define JUMP_MOTORS_INACTIVE_DEBUG
+
+void jumpWhenMotorsInactive()
+{
+
+#ifdef JUMP_MOTORS_INACTIVE_DEBUG
+	Serial.println(".**jump to label if motors inactive");
+#endif
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		Serial.println("FAIL: mising destination in measure distance test");
+		return;
+	}
+
+	int labelStatementPos = findLabelInProgram(decodePos, programBase);
+
+#ifdef JUMP_MOTORS_INACTIVE_DEBUG
+	Serial.print("Label statement pos: ");
+	Serial.println(labelStatementPos);
+#endif
+
+	if (labelStatementPos < 0)
+	{
+		Serial.println("FAIL: label not found in motors inactive test");
+		return;
+	}
+
+	if (!motorsMoving())
+	{
+#ifdef JUMP_MOTORS_INACTIVE_DEBUG
+		Serial.println("Motors inactive - taking jump");
+#endif
+		// the label has been found - jump to it
+		programCounter = labelStatementPos;
+	}
+	else
+	{
+#ifdef JUMP_MOTORS_INACTIVE_DEBUG
+		Serial.println("Motors running - continuing");
+#endif
+	}
+
+	// otherwise do nothing
+}
+
 void programControl()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
@@ -1011,6 +1114,14 @@ void programControl()
 
 	switch (commandCh)
 	{
+	case 'I':
+	case 'i':
+		jumpWhenMotorsInactive();
+		break;
+	case 'A':
+	case 'a': 
+		pauseWhenMotorsActive();
+		break;
 	case 'D':
 	case 'd':
 		remoteDelay();
@@ -1042,7 +1153,8 @@ void remoteDownload()
 	startDownloadingCode(STORED_PROGRAM_OFFSET);
 }
 
-void remoteDownloadControl()
+
+void remoteManagement()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
@@ -1069,8 +1181,23 @@ void remoteDownloadControl()
 	case 'm':
 		remoteDownload();
 		break;
+	case 'S':
+	case 's':
+		startProgramExecution(STORED_PROGRAM_OFFSET);
+		break;
+	case 'H':
+	case 'h':
+		haltProgramExecution();
+		break;
+	case 'P':
+	case 'p':
+		pauseProgramExecution();
+		break;
+	case 'R':
+	case 'r':
+		resumeProgramExecution();
+		break;
 	}
-
 }
 
 void processCommand(char * commandDecodePos, char * comandDecodeLimit)
@@ -1097,6 +1224,9 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 
 	switch (commandCh)
 	{
+	case '#':
+		// Ignore comments
+		break;
 	case 'M':
 	case 'm':
 		remoteMoveControl();
@@ -1111,14 +1241,16 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 		break;
 	case 'R':
 	case 'r':
-		remoteDownloadControl();
+		remoteManagement();
 		break;
 	default:
 #ifdef COMMAND_DEBUG
 		Serial.println(".  Invalid command : ");
 #endif
 		Serial.print("Invalid Command: ");
-		Serial.println(commandCh);
+		Serial.print(commandCh);
+		Serial.print(" code: ");
+		Serial.println((int)commandCh);
 	}
 	resetCommand();
 }
@@ -1194,7 +1326,7 @@ bool exeuteProgramStatement()
 
 		if (programCounter >= EEPROM_SIZE || programByte == PROGRAM_TERMINATOR)
 		{
-			stopProgramExecution();
+			haltProgramExecution();
 			return false;
 		}
 
@@ -1236,14 +1368,26 @@ void loadTestProgram(int offset)
 
 void updateProgramExcecution()
 {
+
+	// If we recieve serial data the program that is running
+	// must stop. This is to allow 
+	while (CharsAvailable())
+	{
+		byte b = GetRawCh();
+		processCommandByte(b);
+	}
+
 	switch (programState)
 	{
 	case PROGRAM_STOPPED:
+	case PROGRAM_PAUSED:
 		break;
 	case PROGRAM_ACTIVE:
 		exeuteProgramStatement();
 		break;
 	case PROGRAM_AWAITING_MOVE_COMPLETION:
+		if (!motorsMoving())
+			programState = PROGRAM_ACTIVE;
 		break;
 	case PROGRAM_AWAITING_DELAY_COMPLETION:
 		if (millis() > delayEndTime)
