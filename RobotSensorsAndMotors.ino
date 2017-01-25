@@ -41,7 +41,12 @@
 
 void setup() {
 	Serial.begin(9600);
-	Serial.println(".Version 0.6 Starting");
+	Serial.println(version);
+
+	// Uncomment to test the distance sensor
+//	directDistanceReadTest();
+
+	Serial.println("Starting");
 	setupRobotNotors();
 	setupDistanceSensor();
 	setupRemoteControl();
@@ -50,15 +55,11 @@ void setup() {
 	transitionToRandomColor();
 	randomiseLights();
 	renderLights();
-
 	startProgramExecution(STORED_PROGRAM_OFFSET);
-
-	startBusyPixel();
 }
 
 
 void loop() {
-
 	updateProgramExcecution();
 	updateLightsAndDelay();
 

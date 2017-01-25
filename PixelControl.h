@@ -543,22 +543,18 @@ void setFlickerUpdateSpeed(byte speed)
 	// set the new flicker update speed
 	flickerUpdateSpeed = 21 - speed;
 
-	// force all the lights to update with the new flicker speed
-	for (int i = 0; i < NO_OF_LIGHTS; i++)
-	{
-		if(lights[i].flickerUpdate>0)
-			lights[i].flickerBrightness = lights[i].flickerMax;
-		else
-			lights[i].flickerBrightness = lights[i].flickerMin;
-	}
 }
 
 void updateLightFlicker(byte i)
 {
-	if ((tickCount % lights[i].flickerSpeed) != 0 || lights[i].flickerSpeed == 0)
+	if (lights[i].flickerSpeed == 0)
 		return;
 
-	if (lights[i].flickerUpdate == 0) return; // quit if not flickering
+	if (lights[i].flickerUpdate == 0) 
+		return; // quit if not flickering
+
+	if ((tickCount % lights[i].flickerSpeed) != 0)
+		return;
 
 	/// going to 'bounce' the flicker when it hits the endstops
 	int temp = lights[i].flickerBrightness;
@@ -566,14 +562,15 @@ void updateLightFlicker(byte i)
 	temp += lights[i].flickerUpdate;
 
 	if (temp <= lights[i].flickerMin)
-	{
+	{ 
 		// clamp the value at the lower limit
 		lights[i].flickerBrightness = lights[i].flickerMin;
 
 		// reverse direction
 		lights[i].flickerUpdate = -lights[i].flickerUpdate;
 
-		if (random(0, 10) > 8)
+		// The faster the flicker rate, the more likely a change
+		if (random(0, flickerUpdateSpeed/2) < 2)
 		{
 			// change the flicker speed
 			lights[i].flickerUpdate = random(1, (int)(lights[i].flickerMax - lights[i].flickerMin) / flickerUpdateSpeed);
@@ -973,6 +970,13 @@ void pickRandomColour(byte *r, byte *g, byte *b)
 	}
 }
 
+
+void transitionToColor(byte r, byte g, byte b)
+{
+	for (byte i = 0; i < NO_OF_LIGHTS; i++)
+		startLightTransition(i, 50, 20, r, g, b);
+}
+
 void transitionToRandomColor()
 {
 	byte r, g, b;
@@ -983,8 +987,15 @@ void transitionToRandomColor()
 		startLightTransition(i, 50, 20, r, g, b);
 }
 
+byte oldr = 0, oldg = 0, oldb = 0;
+
 void flickeringColouredLights(byte r, byte g, byte b, byte min, byte max)
 {
+	if (r == oldr & g == oldg & b == oldb)
+	{
+		return;
+	}
+
 	for (byte i = 0; i < NO_OF_LIGHTS; i++) {
 		colouredFlickeringLight(
 			r, g, b,     // colour
@@ -996,6 +1007,9 @@ void flickeringColouredLights(byte r, byte g, byte b, byte min, byte max)
 			NO_OF_GAPS*i,  // position on the ring
 			&lights[i]);   // ligit to make flicker
 	}
+	oldr = r;
+	oldb = b;
+	oldg = g;
 }
 
 
@@ -1133,3 +1147,10 @@ void startBusyPixel()
 	updateBusyPixel();
 }
 
+void stopBusyPixel()
+{
+	setAllLightsOff();
+	oldr = 0;
+	oldg = 0; 
+	oldb = 0;
+}
