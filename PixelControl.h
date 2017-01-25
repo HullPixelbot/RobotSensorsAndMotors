@@ -53,6 +53,15 @@ int tickCount;
 
 bool randomColourTransitions = false;
 
+byte oldr = 0, oldg = 0, oldb = 0;
+
+void resetOldFlickerValues()
+{
+	oldr = 0;
+	oldb = 0;
+	oldg = 0;
+}
+
 void setLightColor(byte r, byte g, byte b)
 {
 	byte i;
@@ -113,6 +122,8 @@ void randomiseLights()
 	{
 		randomiseLight(i);
 	}
+	// force an update if we go into candle mode later
+	resetOldFlickerValues();
 }
 
 void setAllLightsOff()
@@ -121,6 +132,8 @@ void setAllLightsOff()
 	{
 		lights[i].lightState = lightStateOff;
 	}
+	// force an update if we go into candle mode later
+	resetOldFlickerValues();
 }
 
 void startLights()
@@ -971,10 +984,10 @@ void pickRandomColour(byte *r, byte *g, byte *b)
 }
 
 
-void transitionToColor(byte r, byte g, byte b)
+void transitionToColor(byte speed, byte r, byte g, byte b)
 {
 	for (byte i = 0; i < NO_OF_LIGHTS; i++)
-		startLightTransition(i, 50, 20, r, g, b);
+		startLightTransition(i, 50, speed, r, g, b);
 }
 
 void transitionToRandomColor()
@@ -986,8 +999,6 @@ void transitionToRandomColor()
 	for (byte i = 0; i < NO_OF_LIGHTS; i++)
 		startLightTransition(i, 50, 20, r, g, b);
 }
-
-byte oldr = 0, oldg = 0, oldb = 0;
 
 void flickeringColouredLights(byte r, byte g, byte b, byte min, byte max)
 {

@@ -12,8 +12,6 @@
 #define LINE_NUMBERS 2
 #define DUMP_DOWNLOADS 4
 
-byte diagnosticsOutputLevel = 0;
-
 enum ProgramState
 {
 	PROGRAM_STOPPED,
@@ -33,9 +31,12 @@ enum DeviceState
 ProgramState programState = PROGRAM_STOPPED;
 DeviceState deviceState = ACCEPTING_COMMANDS;
 
+byte diagnosticsOutputLevel = 0;
+
+
 long delayEndTime;
 
-#define COMMAND_BUFFER_SIZE 25
+#define COMMAND_BUFFER_SIZE 20
 
 // Set command terminator to CR
 
@@ -45,12 +46,16 @@ long delayEndTime;
 // This is the EOT character
 #define PROGRAM_TERMINATOR 0x00
 
-char remoteCommand[COMMAND_BUFFER_SIZE];
+char programCommand[COMMAND_BUFFER_SIZE];
 char * commandPos;
 char * commandLimit;
 char * bufferLimit;
 char * decodePos;
 char * decodeLimit;
+
+char remoteCommand[COMMAND_BUFFER_SIZE];
+char * remotePos;
+char * remoteLimit;
 
 int remoteLeftSpeed = 10;
 int remoteRightSpeed = 10;
@@ -399,7 +404,7 @@ void resetCommand()
 #ifdef COMMAND_DEBUG
 	Serial.println(".**resetCommand");
 #endif
-	commandPos = remoteCommand;
+	commandPos = programCommand;
 	bufferLimit = commandPos + COMMAND_BUFFER_SIZE;
 }
 
@@ -629,11 +634,40 @@ void remoteColouredCandle()
 	}
 }
 
+//#define REMOTE_PIXEL_COLOR_FADE_DEBUG
+
 void remoteFadeToColor()
 {
 #ifdef PIXEL_COLOUR_DEBUG
-	Serial.println(".**remoteColouredCandle: ");
+	Serial.println(".**remoteFadeToColour: ");
 #endif
+
+	byte no = readInteger();
+	if (no < 1)no = 1;
+	if (no > 20)no = 20;
+
+	no = 21 - no;
+
+#ifdef REMOTE_PIXEL_COLOR_FADE_DEBUG
+	Serial.print(".  Setting: ");
+	Serial.println(no);
+#endif
+
+	decodePos++;
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.print("PX");
+	}
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println("Fail: mising colours after speed");
+		}
+		return;
+	}
 
 	byte r, g, b;
 
@@ -644,7 +678,7 @@ void remoteFadeToColor()
 
 	if (readColour(&r, &g, &b))
 	{
-		transitionToColor(r, g, b);
+		transitionToColor(no,r, g, b);
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
 			Serial.println("OK");
@@ -1459,7 +1493,9 @@ void printStatus()
 	{
 		Serial.println("ISOK");
 	}
-	Serial.println(programState);
+	Serial.print(programState);
+	Serial.println(diagnosticsOutputLevel);
+
 }
 
 
@@ -1489,6 +1525,15 @@ void setMessaging()
 	}
 }
 
+void printProgram()
+{
+	dumpProgramFromEEPROM(STORED_PROGRAM_OFFSET);
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.println("IPOK");
+	}
+}
 
 void information()
 {
@@ -1524,9 +1569,14 @@ void information()
 	case 'S':
 	case 's':
 		printStatus();
+		break;
 	case 'M':
 	case 'm':
 		setMessaging();
+		break;
+	case 'P':
+	case 'p':
+		printProgram();
 		break;
 	}
 }
@@ -1590,7 +1640,6 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 			Serial.println((int)commandCh);
 		}
 	}
-	resetCommand();
 }
 
 void interpretCommandByte(byte b)
@@ -1613,7 +1662,8 @@ void interpretCommandByte(byte b)
 #ifdef COMMAND_DEBUG
 		Serial.println(".  Command end");
 #endif
-		processCommand(remoteCommand, commandPos);
+		processCommand(programCommand, commandPos);
+		resetCommand();
 		return;
 	}
 }
@@ -1639,6 +1689,34 @@ void processCommandByte(byte b)
 	}
 }
 
+void resetSerialBuffer()
+{
+	remotePos = remoteCommand;
+	remoteLimit = remoteCommand + COMMAND_BUFFER_SIZE;
+}
+
+void processSerialByte(byte b)
+{
+	if (remotePos == remoteLimit)
+	{
+		resetSerialBuffer();
+		return;
+	}
+
+	*remotePos = b;
+	remotePos++;
+
+	if (b == STATEMENT_TERMINATOR)
+	{
+#ifdef COMMAND_DEBUG
+		Serial.println(".  Command end");
+#endif
+		processCommand(remoteCommand, remotePos);
+		resetSerialBuffer();
+		return;
+	}
+}
+
 void setupRemoteControl()
 {
 #ifdef COMMAND_DEBUG
@@ -1646,7 +1724,6 @@ void setupRemoteControl()
 #endif
 	resetCommand();
 }
-
 
 // Executes the statement at the current program counter
 

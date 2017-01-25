@@ -44,7 +44,7 @@ void setup() {
 	Serial.println(version);
 
 	// Uncomment to test the distance sensor
-//	directDistanceReadTest();
+	//directDistanceReadTest();
 
 	Serial.println("Starting");
 	setupRobotNotors();
