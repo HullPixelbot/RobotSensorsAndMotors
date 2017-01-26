@@ -36,9 +36,9 @@ void pulseEvent()
   }
 }
 
-float getDistanceValue()
+int getDistanceValue()
 {
-  return pulseWidth / 58.2;
+  return (int) (pulseWidth / 58);
 }
 
 void setupDistanceSensor()
@@ -48,5 +48,24 @@ void setupDistanceSensor()
   pinMode(echoPin, INPUT);
   attachInterrupt(digitalPinToInterrupt(echoPin), pulseEvent, CHANGE);
   triggerDistanceSensor();
+}
+
+void directDistanceReadTest()
+{
+	pinMode(trigPin, OUTPUT);
+	pinMode(echoPin, INPUT);
+	long duration, distance;
+	while (true)
+	{
+		digitalWrite(trigPin, LOW);
+		delayMicroseconds(2); 
+		digitalWrite(trigPin, HIGH);
+		delayMicroseconds(10);
+		digitalWrite(trigPin, LOW);
+		duration = pulseIn(echoPin, HIGH);
+		distance = (duration / 2) / 29;
+		Serial.println(distance);
+		delay(500);
+	}
 }
 
