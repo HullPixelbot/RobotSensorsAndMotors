@@ -607,6 +607,17 @@ void updateLightFlicker(byte i)
 
 void startLightTransition(byte lightNo, byte speed, byte colourSpeed, byte r, byte g, byte b)
 {
+
+	colouredFlickeringLight(
+		lights[lightNo].r, lights[lightNo].g, lights[lightNo].b,     // colour
+		random(1, lights[lightNo].flickerMax - lights[lightNo].flickerMin),//60,            // flicker brightness
+		random(1, (int)(lights[lightNo].flickerMax - lights[lightNo].flickerMin) / flickerUpdateSpeed),            // flicker update step
+		lights[lightNo].flickerMin,            // flicker minimum
+		lights[lightNo].flickerMax,           // flicker maximum
+		1,             // number of ticks per flicker update - flicker speed
+		NO_OF_GAPS*lightNo,  // position on the ring
+		&lights[lightNo]);   // ligit to make flicker
+
 	lights[lightNo].colourSpeed = colourSpeed;
 	lights[lightNo].rMin = r;
 	lights[lightNo].rMax = r;
@@ -1014,7 +1025,7 @@ void flickeringColouredLights(byte r, byte g, byte b, byte min, byte max)
 			random(1, (int)(max - min) / flickerUpdateSpeed),            // flicker update step
 			min,            // flicker minimum
 			max,           // flicker maximum
-			1,             // number of ticks per flicker update
+			1,             // number of ticks per flicker update - flicker speed
 			NO_OF_GAPS*i,  // position on the ring
 			&lights[i]);   // ligit to make flicker
 	}
@@ -1113,7 +1124,7 @@ void updateLights()
 	renderLights();
 }
 
-void updateLightsAndDelay()
+void updateLightsAndDelay(bool wantDelay)
 {
 	tickEnd = millis() + TICK_INTERVAL;
 
@@ -1127,8 +1138,11 @@ void updateLightsAndDelay()
 			transitionToRandomColor();
 	}
 
-	while (millis() < tickEnd) {
-		delay(1);
+	if (wantDelay)
+	{
+		while (millis() < tickEnd) {
+			delay(1);
+		}
 	}
 }
 

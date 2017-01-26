@@ -10,7 +10,8 @@
 
 #define STATEMENT_CONFIRMATION 1
 #define LINE_NUMBERS 2
-#define DUMP_DOWNLOADS 4
+#define ECHO_DOWNLOADS 4
+#define DUMP_DOWNLOADS 8
 
 enum ProgramState
 {
@@ -24,8 +25,7 @@ enum ProgramState
 enum DeviceState
 {
 	ACCEPTING_COMMANDS,
-	DOWNLOADING_CODE,
-	DOWNLOADING_CHECKSUM
+	DOWNLOADING_CODE
 };
 
 ProgramState programState = PROGRAM_STOPPED;
@@ -184,11 +184,6 @@ void haltProgramExecution()
 #endif
 
 	programState = PROGRAM_STOPPED;
-
-	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
-	{
-		Serial.println("RHOK");
-	}
 }
 
 // RP - pause program
@@ -236,6 +231,23 @@ void resumeProgramExecution()
 	}
 }
 
+enum lineStorageState
+{
+	LINE_START,
+	GOT_R,
+	GOT_RX,
+	STORING,
+	SKIPPING
+};
+
+lineStorageState lineStoreState;
+
+void resetLineStorageState()
+{
+	lineStoreState = LINE_START;
+}
+
+
 // Called to start the download of program code
 // each byte that arrives down the serial port is now stored in program memory
 //
@@ -252,9 +264,15 @@ void startDownloadingCode(int downloadPosition)
 
 	programWriteBase = downloadPosition;
 
-	downloadChecksum = 0;
+	resetLineStorageState();
 
 	startBusyPixel();
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.println("RMOK");
+	}
+
 }
 
 // Called when a byte is received from the host when in program storage mode
@@ -264,48 +282,68 @@ void startDownloadingCode(int downloadPosition)
 
 //#define STORE_RECEIVED_BYTE_DEBUG
 
+
 void storeReceivedByte(byte b)
 {
-	// Store the byte - overlong programs will fail silently at the moment.....
+	// ignore odd characters - except for CR
 
-	if (storeByteIntoEEPROM(b, programWriteBase++))
+	if (b < 32 | b>128)
 	{
-		// if the store worked - update the busy pixel
-		if (b == STATEMENT_TERMINATOR)
-			updateBusyPixel();
+		if (b != STATEMENT_TERMINATOR)
+			return;
 	}
 
-#ifdef STORE_RECEIVED_BYTE_DEBUG
-//	Serial.println(b);
-#endif
-
-	// Add the value onto the checksum
-	downloadChecksum += b;
-	
-	// Have we reached the end of the program?
-	if (b == PROGRAM_TERMINATOR)
+	switch (lineStoreState)
 	{
 
-#ifdef STORE_RECEIVED_BYTE_DEBUG
-		Serial.println("Got the program terminator");
-#endif
+	case LINE_START:
+		// at the start of a line - look for an R command
 
-		// end of the code - wait for the checksum
-		deviceState = DOWNLOADING_CHECKSUM;
-	}
-}
+		if (b == 'r' | b == 'R')
+		{
+			lineStoreState = GOT_R;
+		}
+		else
+		{
+			lineStoreState = STORING;
+		}
+		break;
 
-// called when a checksum is received for a downloaded program
-// Starts the program running it the checksum is valid
-void processReceivedChecksum(byte b)
-{
-	if (b == downloadChecksum)
-	{
-		// Yay = got a checksum match!
+	case GOT_R:
+		// Last character was an R - is this an X?
+
+		if (b == 'x' | b == 'X')
+		{
+			lineStoreState = GOT_RX;
+		}
+		else
+		{
+			// Not an X - but we never store R commands
+			// skip to the next line
+			lineStoreState = SKIPPING;
+		}
+		break;
+
+	case GOT_RX:
+		// Got an RX command - we are absorbing the terminator
+		// tidy up and start the program
+
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("RMOK");
+			Serial.println("RXOK");
 		}
+
+		stopBusyPixel();
+
+		// enable immediate command receipt
+
+		deviceState = ACCEPTING_COMMANDS;
+
+		setProgramStored();
+
+		// put the terminator on the end
+
+		storeByteIntoEEPROM(PROGRAM_TERMINATOR, programWriteBase++);
 
 		if (diagnosticsOutputLevel & DUMP_DOWNLOADS)
 		{
@@ -313,24 +351,48 @@ void processReceivedChecksum(byte b)
 		}
 
 		startProgramExecution(STORED_PROGRAM_OFFSET);
-		setProgramStored();
-	}
-	else
-	{
-		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+
+		break;
+
+	case SKIPPING:
+		// we are skipping an R command - look for a statement terminator
+		if (b == STATEMENT_TERMINATOR)
 		{
-			Serial.print("RMFail: ");
-			Serial.print("Bad checksum. Calculated: ");
-			Serial.print((byte)downloadChecksum);
-			Serial.print("Received: ");
-			Serial.println((byte)b);
+			// Got a terminator, look for the command character
+			lineStoreState = LINE_START;
 		}
-		clearProgramStored();
+		break;
+
+	case STORING:
+		// break out- storing takes place next
+		break;
 	}
 
-	stopBusyPixel();
+	if (lineStoreState == STORING)
+	{
+		// get here if we are storing or just got a line start
 
-	deviceState = ACCEPTING_COMMANDS;
+		// if we get here we store the byte
+		storeByteIntoEEPROM(b, programWriteBase++);
+
+		if (diagnosticsOutputLevel & ECHO_DOWNLOADS)
+		{
+			Serial.print((char)b);
+		}
+
+		if (b == STATEMENT_TERMINATOR)
+		{
+			// Got a terminator, look for the command character
+			if (diagnosticsOutputLevel & ECHO_DOWNLOADS)
+			{
+				Serial.println();
+			}
+			lineStoreState = LINE_START;
+			// look busy
+			updateBusyPixel();
+		}
+	}
+
 }
 
 #ifdef COMMAND_DEBUG
@@ -1404,6 +1466,7 @@ void remoteDownload()
 		Serial.println("RMFAIL: not accepting commands");
 		return;
 	}
+
 	startDownloadingCode(STORED_PROGRAM_OFFSET);
 }
 
@@ -1417,6 +1480,16 @@ void startProgramCommand()
 	}
 }
 
+
+void haltProgramExecutionCommand()
+{
+	haltProgramExecution();
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.println("RHOK");
+	}
+}
 
 void remoteManagement()
 {
@@ -1451,7 +1524,7 @@ void remoteManagement()
 		break;
 	case 'H':
 	case 'h':
-		haltProgramExecution();
+		haltProgramExecutionCommand();
 		break;
 	case 'P':
 	case 'p':
@@ -1668,34 +1741,13 @@ void interpretCommandByte(byte b)
 	}
 }
 
-void processCommandByte(byte b)
-{ 
-#ifdef COMMAND_DEBUG
-	Serial.print(".**processCommandByte: ");
-	Serial.println((char)b);
-#endif
-
-	switch (deviceState)
-	{
-	case ACCEPTING_COMMANDS:
-		interpretCommandByte(b);
-		break;
-	case DOWNLOADING_CODE:
-		storeReceivedByte(b);
-		break;
-	case DOWNLOADING_CHECKSUM:
-		processReceivedChecksum(b);
-		break;
-	}
-}
-
 void resetSerialBuffer()
 {
 	remotePos = remoteCommand;
 	remoteLimit = remoteCommand + COMMAND_BUFFER_SIZE;
 }
 
-void processSerialByte(byte b)
+void interpretSerialByte(byte b)
 {
 	if (remotePos == remoteLimit)
 	{
@@ -1717,15 +1769,36 @@ void processSerialByte(byte b)
 	}
 }
 
+void processSerialByte(byte b)
+{
+#ifdef COMMAND_DEBUG
+	Serial.print(".**processSerialByte: ");
+	Serial.println((char)b);
+#endif
+
+	switch (deviceState)
+	{
+	case ACCEPTING_COMMANDS:
+		interpretSerialByte(b);
+		break;
+	case DOWNLOADING_CODE:
+		storeReceivedByte(b);
+		break;
+	}
+}
+
+
 void setupRemoteControl()
 {
 #ifdef COMMAND_DEBUG
 	Serial.println(".**setupRemoteControl");
 #endif
 	resetCommand();
+	resetSerialBuffer();
 }
 
-// Executes the statement at the current program counter
+// Executes the statement in the EEPROM at the current program counter
+// The statement is assembled into a buffer by interpretCommandByte
 
 bool exeuteProgramStatement()
 {
@@ -1756,7 +1829,7 @@ bool exeuteProgramStatement()
 		Serial.println(programByte);
 #endif
 
-		processCommandByte(programByte);
+		interpretCommandByte(programByte);
 
 		if (programByte == STATEMENT_TERMINATOR)
 			return true;
@@ -1795,7 +1868,7 @@ void updateProgramExcecution()
 	while (CharsAvailable())
 	{
 		byte b = GetRawCh();
-		processCommandByte(b);
+		processSerialByte(b);
 	}
 
 	switch (programState)
@@ -1819,4 +1892,7 @@ void updateProgramExcecution()
 	}
 }
 
-
+bool commandsNeedFullSpeed()
+{
+	return deviceState != ACCEPTING_COMMANDS;
+}

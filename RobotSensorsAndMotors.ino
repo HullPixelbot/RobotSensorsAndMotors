@@ -40,7 +40,7 @@
 #include "Commands.h"
 
 void setup() {
-	Serial.begin(9600);
+	Serial.begin(1200);
 	Serial.println(version);
 
 	// Uncomment to test the distance sensor
@@ -61,6 +61,7 @@ void setup() {
 
 void loop() {
 	updateProgramExcecution();
-	updateLightsAndDelay();
+
+	updateLightsAndDelay(!commandsNeedFullSpeed());
 
 }
