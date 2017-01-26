@@ -61,7 +61,5 @@ void setup() {
 
 void loop() {
 	updateProgramExcecution();
-
 	updateLightsAndDelay(!commandsNeedFullSpeed());
-
 }
