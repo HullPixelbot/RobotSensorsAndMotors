@@ -1,8 +1,8 @@
 // HullPixelbot motor controller
 // Accepts commands via the serial port and acts on them to control motor movement
 // and pixel colours. 
-// Command protocol available at http:\\HullPixelbot.com
-// Version 0.5 Rob Miles
+// Command protocol available at https://github.com/HullPixelbot/HullPixelbotCode
+// Version 1.5 Rob Miles
 
 // Physical connections for Arduino Pro Mini
 
@@ -28,7 +28,7 @@
 //#define COMMAND_DEBUG
 
 
-// Define if driving a WEMOS board
+// Define if driving a WEMOS board (not fully tested)
 //#define WEMOS
 
 #include "PixelControl.h"
