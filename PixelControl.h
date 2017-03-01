@@ -1148,6 +1148,7 @@ void updateLightsAndDelay(bool wantDelay)
 
 // Pixel position for busy display
 byte pixelPos = 0;
+byte busyRed, busyGreen, busyBlue;
 
 void updateBusyPixel()
 {
@@ -1160,13 +1161,16 @@ void updateBusyPixel()
 	if (pixelPos == PIXELS)
 		pixelPos = 0;
 
-	setLightColor(128, 128, 128, pixelPos);
+	setLightColor(busyRed, busyGreen, busyBlue, pixelPos);
 
 	updateLights();
 }
 
-void startBusyPixel()
+void startBusyPixel(byte red, byte green, byte blue)
 {
+	busyRed = red;
+	busyBlue = blue;
+	busyGreen = green;
 	setAllLightsOff();
 	pixelPos = 0;
 	updateBusyPixel();
@@ -1178,4 +1182,15 @@ void stopBusyPixel()
 	oldr = 0;
 	oldg = 0; 
 	oldb = 0;
+}
+
+void displayBusyPixelWait(int ticks, byte red, byte green, byte blue)
+{
+	startBusyPixel(red, green, blue);
+	for (int i = 0; i < ticks; i++)
+	{
+		updateBusyPixel();
+		delay(200);
+	}
+	stopBusyPixel();
 }

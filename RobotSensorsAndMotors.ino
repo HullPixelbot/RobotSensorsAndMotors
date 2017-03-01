@@ -1,8 +1,8 @@
 // HullPixelbot motor controller
 // Accepts commands via the serial port and acts on them to control motor movement
 // and pixel colours. 
-// Command protocol available at http:\\HullPixelbot.com
-// Version 0.5 Rob Miles
+// Command protocol available at https://github.com/HullPixelbot/HullPixelbotCode
+// Version 1.5 Rob Miles
 
 // Physical connections for Arduino Pro Mini
 
@@ -21,6 +21,7 @@
 
 // Distance sensor trigger 3, echo 2
 
+#include <Adafruit_NeoPixel.h>
 #include <EEPROM.h>
 #include <TimerOne.h>
 
@@ -28,8 +29,10 @@
 //#define COMMAND_DEBUG
 
 
-// Define if driving a WEMOS board
+// Define if driving a WEMOS board (not fully tested)
 //#define WEMOS
+
+#include "Storage.h"
 
 #include "PixelControl.h"
 
@@ -46,15 +49,12 @@ void setup() {
 	// Uncomment to test the distance sensor
 	//directDistanceReadTest();
 
-	Serial.println("Starting");
-	setupRobotNotors();
+	Serial.println(F("Starting"));
+	setupMotors();
 	setupDistanceSensor();
 	setupRemoteControl();
 	startLights();
-	flickeringColouredLights(220, 208, 255, 0, 200);
-	transitionToRandomColor();
-	randomiseLights();
-	renderLights();
+	displayBusyPixelWait(12, 0, 0, 255);
 	startProgramExecution(STORED_PROGRAM_OFFSET);
 }
 

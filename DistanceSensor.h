@@ -17,7 +17,7 @@ void triggerDistanceSensor()
 
   digitalWrite(trigPin, LOW);
 }
-
+ 
 void pulseEvent()
 {
 

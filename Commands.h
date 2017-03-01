@@ -1,13 +1,6 @@
 
 // Stored program management
 
-#define EEPROM_SIZE 1000
-#define STORED_PROGRAM_OFFSET 20
-
-#define PROGRAM_STATUS_BYTE_OFFSET 0
-#define PROGRAM_STORED_VALUE1 0xaa
-#define PROGRAM_STORED_VALUE2 0x55
-
 #define STATEMENT_CONFIRMATION 1
 #define LINE_NUMBERS 2
 #define ECHO_DOWNLOADS 4
@@ -20,6 +13,7 @@ enum ProgramState
 	PROGRAM_ACTIVE,
 	PROGRAM_AWAITING_MOVE_COMPLETION,
 	PROGRAM_AWAITING_DELAY_COMPLETION,
+	SYSTEM_CONFIGURATION_CONNECTION // will never enter this state
 };
 
 enum DeviceState
@@ -32,7 +26,6 @@ ProgramState programState = PROGRAM_STOPPED;
 DeviceState deviceState = ACCEPTING_COMMANDS;
 
 byte diagnosticsOutputLevel = 0;
-
 
 long delayEndTime;
 
@@ -57,89 +50,24 @@ char remoteCommand[COMMAND_BUFFER_SIZE];
 char * remotePos;
 char * remoteLimit;
 
-int remoteLeftSpeed = 10;
-int remoteRightSpeed = 10;
-int remoteRotateSpeed = 10;
+///////////////////////////////////////////////////////////
+/// Serial comms 
+///////////////////////////////////////////////////////////
 
-// Stores a program byte into the eeprom at the stated location
-// The pos value is the offset in the EEProm into which the program is to be written
-// The function returns true if the byte was stored, false if not
-
-bool storeByteIntoEEPROM(char byte, int pos)
+int CharsAvailable()
 {
-	if (pos > EEPROM_SIZE)
-		return false;
-	EEPROM.update(pos, byte);
-	return true;
+	return Serial.available();
 }
 
-// Stores a program into the eeprom at the stated location
-// The program is a string of text which is zero terminated
-// The EEPromStart value is the offset in the EEProm into which the program is to be written
-// The function returns true if the program was loaded, false if not
-
-bool storeProgramIntoEEPROM(char * programStart, int EEPromStart)
+byte GetRawCh()
 {
-	while (*programStart)
+	int ch;
+	do
 	{
-		if (!storeByteIntoEEPROM(*programStart, EEPromStart))
-			return false;
-		programStart++;
-		EEPromStart++;
-	}
+		ch = Serial.read();
+	} while (ch < 0);
 
-	// put the terminator on the end of the program
-	storeByteIntoEEPROM(*programStart, EEPromStart);
-	return true;
-}
-
-// Dumps the program as stored in the EEPROM
-
-void dumpProgramFromEEPROM(int EEPromStart)
-{
-	Serial.println("Current program: ");
-
-	char byte;
-	while (byte = EEPROM.read(EEPromStart++))
-	{
-		if (byte == STATEMENT_TERMINATOR)
-			Serial.println();
-		else
-			Serial.print(byte);
-
-		if (byte == PROGRAM_TERMINATOR)
-		{
-			Serial.println("Reached end of program");
-			break;
-		}
-
-		if (EEPromStart >= EEPROM_SIZE)
-		{
-			Serial.println("Reached end of eeprom");
-			break;
-		}
-	}
-}
-
-void setProgramStored()
-{
-	storeByteIntoEEPROM(PROGRAM_STORED_VALUE1, PROGRAM_STATUS_BYTE_OFFSET);
-	storeByteIntoEEPROM(PROGRAM_STORED_VALUE2, PROGRAM_STATUS_BYTE_OFFSET + 1);
-}
-
-void clearProgramStored()
-{
-	storeByteIntoEEPROM(0, PROGRAM_STATUS_BYTE_OFFSET);
-	storeByteIntoEEPROM(0, PROGRAM_STATUS_BYTE_OFFSET + 1);
-}
-
-bool isProgramStored()
-{
-	if ((EEPROM.read(PROGRAM_STATUS_BYTE_OFFSET) == PROGRAM_STORED_VALUE1) &
-		(EEPROM.read(PROGRAM_STATUS_BYTE_OFFSET + 1) == PROGRAM_STORED_VALUE2))
-		return true;
-	else
-		return false;
+	return (byte)ch;
 }
 
 // Current position in the EEPROM of the execution
@@ -157,6 +85,34 @@ int bufferWritePosition;
 // Checksum for the download
 byte downloadChecksum;
 
+// Dumps the program as stored in the EEPROM
+
+void dumpProgramFromEEPROM(int EEPromStart)
+{
+	Serial.println(F("Current program: "));
+
+	char byte;
+	while (byte = EEPROM.read(EEPromStart++))
+	{
+		if (byte == STATEMENT_TERMINATOR)
+			Serial.println();
+		else
+			Serial.print(byte);
+
+		if (byte == PROGRAM_TERMINATOR)
+		{
+			Serial.println(F("Reached end of program"));
+			break;
+		}
+
+		if (EEPromStart >= EEPROM_SIZE)
+		{
+			Serial.println(F("Reached end of eeprom"));
+			break;
+		}
+	}
+}
+
 // Starts a program running at the given position
 
 void startProgramExecution(int programPosition)
@@ -165,7 +121,7 @@ void startProgramExecution(int programPosition)
 	{
 
 #ifdef PROGRAM_DEBUG
-		Serial.print(".Starting program execution at: ");
+		Serial.print(F(".Starting program execution at: "));
 		Serial.println(programPosition);
 #endif
 		programCounter = programPosition;
@@ -179,12 +135,13 @@ void startProgramExecution(int programPosition)
 void haltProgramExecution()
 {
 #ifdef PROGRAM_DEBUG
-	Serial.print(".Ending program execution at: ");
+	Serial.print(F(".Ending program execution at: "));
 	Serial.println(programCounter);
 #endif
 
 	programState = PROGRAM_STOPPED;
 }
+
 
 // RP - pause program
 
@@ -199,7 +156,7 @@ void pauseProgramExecution()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("RPOK");
+		Serial.print(F("RPOK"));
 	}
 }
 
@@ -218,14 +175,14 @@ void resumeProgramExecution()
 		programState = PROGRAM_ACTIVE;
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("RROK");
+			Serial.print(F("RROK"));
 		}
 	}
 	else
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.print("RRFail:");
+			Serial.print(F("RRFail:"));
 			Serial.println(programState);
 		}
 	}
@@ -266,13 +223,12 @@ void startDownloadingCode(int downloadPosition)
 
 	resetLineStorageState();
 
-	startBusyPixel();
+	startBusyPixel(128,128,128);
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("RMOK");
+		Serial.print(F("RMOK"));
 	}
-
 }
 
 // Called when a byte is received from the host when in program storage mode
@@ -281,7 +237,6 @@ void startDownloadingCode(int downloadPosition)
 // for the program checksum
 
 //#define STORE_RECEIVED_BYTE_DEBUG
-
 
 void storeReceivedByte(byte b)
 {
@@ -330,7 +285,7 @@ void storeReceivedByte(byte b)
 
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("RXOK");
+			Serial.println(F("RXOK"));
 		}
 
 		stopBusyPixel();
@@ -474,10 +429,7 @@ void resetCommand()
 #define MOVE_FORWARDS_DEBUG
 #endif
 
-int previousForwardDistanceMove = 0;
-
-// Command MFddd - move distance
-// Command MF    - move previous distance, or 0 if no previous move
+// Command MFddd,ttt - move distance ddd over time ttt (ttt expressed in "ticks" - tenths of a second)
 // Return OK
 
 void remoteMoveForwards()
@@ -490,39 +442,253 @@ void remoteMoveForwards()
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
-#ifdef MOVE_FORWARDS_DEBUG
-		Serial.println(".  Using previous move value");
-#endif
-		forwardMoveDistance = previousForwardDistanceMove;
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("FAIL: no dist"));
+		}
+		return;
+	}
+		
+	forwardMoveDistance = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MFOK"));
+		}
+		fastMoveDistanceInMM(forwardMoveDistance, forwardMoveDistance);
+		return;
+	}
+
+	decodePos++; // move past the separator
+
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("FAIL: no time"));
+		}
+		return;
+	}
+
+	int forwardMoveTime = readInteger();
+
+	int moveResult = timedMoveDistanceInMM(forwardMoveDistance, forwardMoveDistance, (float)forwardMoveTime/10.0);
+
+	if (moveResult == 0)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MFOK"));
+		}
 	}
 	else
 	{
-		forwardMoveDistance = readInteger();
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MFFail"));
+		}
+	}
+}
+
+// Command MMld,rd,time - move motors. 
+// ld - left distance
+// rd - right distance
+// time - time for the move
+//
+// Return OK
+
+//#define MOVE_MOTORS_DEBUG
+
+void remoteMoveMotors()
+{
+#ifdef MOVE_MOTORS_DEBUG
+	Serial.println(".**movemMotors");
+#endif
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MMFail: no left distance"));
+		}
+		return ;
 	}
 
-	previousForwardDistanceMove = forwardMoveDistance;
+	int leftDistance = readInteger();
 
-#ifdef MOVE_FORWARDS_DEBUG
-	Serial.print(".  Moving: ");
-	Serial.println(forwardMoveDistance);
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MMFail: no right distance"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MMFail: no right distance"));
+		}
+		return;
+	}
+
+	int rightDistance = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MMOK"));
+		}
+		fastMoveDistanceInMM(leftDistance, rightDistance);
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MMFail: no time"));
+		}
+		return;
+	}
+
+	int time = readInteger();
+
+#ifdef MOVE_MOTORS_DEBUG
+	Serial.print("    ld: ");
+	Serial.print(leftDistance);
+	Serial.print(" rd: ");
+	Serial.print(rightDistance);
+	Serial.print(" time: ");
+	Serial.println(time);
 #endif
+
+	int reply = timedMoveDistanceInMM(leftDistance, rightDistance, time / 10.0);
+
+	if (reply == 0)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MMOK"));
+		}
+	}
+	else
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MMFail: "));
+			Serial.println(reply);
+		}
+	}
+}
+
+// Command MWll,rr,ss - wheel configuration
+// ll - diameter of left wheel
+// rr - diameter of right wheel
+// ss - spacing of wheels
+//
+// all dimensions in mm
+#// Return OK
+
+#define CONFIG_WHEELS_DEBUG
+
+void remoteConfigWheels()
+{
+#ifdef CONFIG_WHEELS_DEBUG
+	Serial.println(F(".**remoteConfigWheels"));
+#endif
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MWFail: no left diameter"));
+		}
+		return;
+	}
+
+	int leftDiameter = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MWFail: no right diameter"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MWFail: no right diameter"));
+		}
+		return;
+	}
+
+	int rightDiameter = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MWFail: no wheel spacing"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MWFail: no wheel spacing"));
+		}
+		return;
+	}
+
+	int spacing = readInteger();
+
+#ifdef CONFIG_WHEELS_DEBUG
+	Serial.print("    ld: ");
+	Serial.print(leftDiameter);
+	Serial.print(" rd: ");
+	Serial.print(rightDiameter);
+	Serial.print(" separation: ");
+	Serial.println(spacing);
+#endif
+
+	setActiveWheelSettings(leftDiameter, rightDiameter, spacing);
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("MFOK");
+		Serial.print(F("MWOK"));
 	}
-
-	moveRobot(forwardMoveDistance, forwardMoveDistance, remoteLeftSpeed, remoteRightSpeed);
 }
 
+void remoteViewWheelConfig()
+{
+	dumpActiveWheelSettings();
+}
 
 #ifdef COMMAND_DEBUG
 #define ROTATE_DEBUG
 #endif
 
-int previousRotateAngle = 0;
-
-// Command MRddd - rotate distance
+// Command MRddd,ttt - rotate distance in time ttt (ttt is given in "ticks", where a tick is a tenth of a second
 // Command MR    - rotate previous distance, or 0 if no previous rotate
 // Return OK
 
@@ -531,35 +697,64 @@ void remoteRotateRobot()
 	int rotateAngle;
 
 #ifdef ROTATE_DEBUG
-	Serial.println(".**rotateRobot");
+	Serial.println(F(".**rotateRobot"));
 #endif
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MRFail: no angle"));
+		}
+		return;
+	}
+
+	rotateAngle = readInteger();
+	
 #ifdef ROTATE_DEBUG
-		Serial.println(".  Using previous rotate angle");
-#endif
-		rotateAngle = previousRotateAngle;
-	}
-	else
-	{
-		rotateAngle = readInteger();
-	}
-
-	previousRotateAngle = rotateAngle;
-
-#ifdef MOVE_FORWARDS_DEBUG
 	Serial.print(".  Rotating: ");
 	Serial.println(rotateAngle);
 #endif
 
-	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	if (*decodePos == STATEMENT_TERMINATOR)
 	{
-		Serial.println("MROK");
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MROK"));
+		}
+		fastRotateRobot(rotateAngle);
+		return;
 	}
 
-	rotateRobot(rotateAngle, remoteRotateSpeed);
+	decodePos++; // move past the separator
 
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MRFail: no time"));
+		}
+		return;
+	}
+
+	int rotateTimeInTicks = readInteger();
+
+	int moveResult = timedRotateRobot(rotateAngle, rotateTimeInTicks / 10.0);
+
+	if (moveResult == 0)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MROK"));
+		}
+	}
+	else
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MRFail"));
+		}
+	}
 }
 
 #ifdef COMMAND_DEBUG
@@ -627,7 +822,7 @@ bool readColour(byte *r, byte *g, byte*b)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising colour values in readColor");
+			Serial.println(F("FAIL: mising colour values in readColor"));
 		}
 		return false;
 	}
@@ -638,7 +833,7 @@ bool readColour(byte *r, byte *g, byte*b)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising colours after red in readColor");
+			Serial.println(F("FAIL: mising colours after red in readColor"));
 		}
 		return false;
 		}
@@ -655,7 +850,7 @@ bool readColour(byte *r, byte *g, byte*b)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising colours after green in readColor");
+			Serial.println(F("FAIL: mising colours after green in readColor"));
 		}
 		return false;
 	}
@@ -691,7 +886,7 @@ void remoteColouredCandle()
 		flickeringColouredLights(r, g, b, 0, 200);
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("OK");
+			Serial.println(F("OK"));
 		}
 	}
 }
@@ -726,7 +921,7 @@ void remoteFadeToColor()
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("Fail: mising colours after speed");
+			Serial.println(F("Fail: mising colours after speed"));
 		}
 		return;
 	}
@@ -735,7 +930,7 @@ void remoteFadeToColor()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.print("PX");
+		Serial.print(F("PX"));
 	}
 
 	if (readColour(&r, &g, &b))
@@ -743,7 +938,7 @@ void remoteFadeToColor()
 		transitionToColor(no,r, g, b);
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("OK");
+			Serial.println(F("OK"));
 		}
 	}
 }
@@ -767,7 +962,7 @@ void remoteSetFlickerSpeed()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("PFOK");
+		Serial.println(F("PFOK"));
 	}
 }
 
@@ -798,7 +993,7 @@ void remoteSetIndividualPixel()
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("Fail: mising colours after pixel");
+			Serial.println(F("Fail: mising colours after pixel"));
 		}
 		return;
 	}
@@ -840,7 +1035,7 @@ void remotePixelControl()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
-		Serial.println("FAIL: mising pixel control command character");
+		Serial.println(F("FAIL: mising pixel control command character"));
 		return;
 	}
 
@@ -890,7 +1085,7 @@ void remoteMoveControl()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
-		Serial.println("FAIL: mising move control command character");
+		Serial.println(F("FAIL: mising move control command character"));
 		return;
 	}
 
@@ -917,6 +1112,10 @@ void remoteMoveControl()
 	case 'r':
 		remoteRotateRobot();
 		break;
+	case 'M':
+	case 'm':
+		remoteMoveMotors();
+		break;
 	case 'C':
 	case 'c':
 		checkMoving();
@@ -924,6 +1123,14 @@ void remoteMoveControl()
 	case 'S':
 	case 's':
 		remoteStopRobot();
+		break;
+	case 'V':
+	case 'v':
+		remoteViewWheelConfig();
+		break;
+	case 'W':
+	case 'w':
+		remoteConfigWheels();
 		break;
 	}
 }
@@ -947,17 +1154,14 @@ void remoteDelay()
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
-#ifdef COMMAND_DELAY_DEBUG
-		Serial.println(".  Using previous delay value");
-#endif
-		delayValueInTenthsIOfASecond = previousRotateAngle;
-	}
-	else
-	{
-		delayValueInTenthsIOfASecond = readInteger();
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("CDFail: no delay"));
+		}
+		return;
 	}
 
-	previousRotateAngle = delayValueInTenthsIOfASecond;
+	delayValueInTenthsIOfASecond = readInteger();
 
 #ifdef COMMAND_DELAY_DEBUG
 	Serial.print(".  Delaying: ");
@@ -966,7 +1170,7 @@ void remoteDelay()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("CDOK");
+		Serial.print(F("CDOK"));
 	}
 
 	delayEndTime = millis() + delayValueInTenthsIOfASecond * 100;
@@ -1224,6 +1428,64 @@ void jumpToLabel()
 	}
 }
 
+//#define JUMP_TO_LABEL_COIN_DEBUG
+
+// Command CTxxxx - jump to label on a coin toss
+// Jumps to the specified label 
+// Return CTOK if the label is found, error if not. 
+
+void jumpToLabelCoinToss()
+{
+#ifdef JUMP_TO_LABEL_COIN_DEBUG
+	Serial.println(F(".**jump to label coin toss"));send
+
+#endif
+
+	char * labelPos = decodePos;
+	char * labelSearch = decodePos;
+
+	int labelStatementPos = findLabelInProgram(decodePos, programBase);
+
+#ifdef JUMP_TO_LABEL_COIN_DEBUG
+	Serial.print("  Label statement pos: ");
+	Serial.println(labelStatementPos);
+#endif
+
+	if (labelStatementPos >= 0)
+	{
+		// the label has been found - jump to it
+
+		if (random(0, 2) == 0)
+		{
+			programCounter = labelStatementPos;
+			if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+			{
+				Serial.print(F("CTjump"));
+			}
+		}
+		else
+		{
+			if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+			{
+				Serial.print(F("CTcontinue"));
+			}
+		}
+
+#ifdef JUMP_TO_LABEL_COIN_DEBUG
+		Serial.print(F("New Program Counter: "));
+		Serial.println(programCounter);
+#endif
+	}
+	else
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("CTFail: no dest"));
+		}
+	}
+}
+
+
 
 // Command CA - pause when motors active
 // Return CAOK when the pause is started
@@ -1237,7 +1499,7 @@ void pauseWhenMotorsActive()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("CAOK");
+		Serial.println(F("CAOK"));
 	}
 }
 
@@ -1250,26 +1512,26 @@ void measureDistanceAndJump()
 {
 
 #ifdef COMMAND_MEASURE_DEBUG
-	Serial.println(".**measure disance and jump to label");
+	Serial.println(F(".**measure disance and jump to label"));
 #endif
 
 	int distance = readInteger();
 
 #ifdef COMMAND_MEASURE_DEBUG
-	Serial.print(".  Distance: ");
+	Serial.print(F(".  Distance: "));
 	Serial.println(distance);
 #endif
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.print("CM");
+		Serial.print(F("CM"));
 	}
 
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising dest");
+			Serial.println(F("FAIL: mising dest"));
 		}
 		return;
 	}
@@ -1280,7 +1542,7 @@ void measureDistanceAndJump()
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising dest");
+			Serial.println(F("FAIL: mising dest"));
 		}
 		return;
 	}
@@ -1294,28 +1556,28 @@ void measureDistanceAndJump()
 
 	if(labelStatementPos < 0)
 	{
-		Serial.println("FAIL: label not found");
+		Serial.println(F("FAIL: label not found"));
 		return;
 	}
 
 	int measuredDistance = getDistanceValue();
 
 #ifdef COMMAND_MEASURE_DEBUG
-	Serial.print("Measured Distance: ");
+	Serial.print(F("Measured Distance: "));
 	Serial.println(measuredDistance);
 #endif
 
 	if (measuredDistance < distance)
 	{
 #ifdef COMMAND_MEASURE_DEBUG
-		Serial.println("Distance smaller - taking jump");
+		Serial.println(F("Distance smaller - taking jump"));
 #endif
 		// the label has been found - jump to it
 		programCounter = labelStatementPos;
 
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("jump");
+			Serial.println(F("jump"));
 		}
 	}
 	else
@@ -1325,7 +1587,7 @@ void measureDistanceAndJump()
 #endif
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("continue");
+			Serial.println(F("continue"));
 		}
 	}
 
@@ -1341,19 +1603,19 @@ void jumpWhenMotorsInactive()
 {
 
 #ifdef JUMP_MOTORS_INACTIVE_DEBUG
-	Serial.println(".**jump to label if motors inactive");
+	Serial.println(F(".**jump to label if motors inactive"));
 #endif
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.print("CI");
+		Serial.print(F("CI"));
 	}
 
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: mising dest");
+			Serial.println(F("FAIL: mising dest"));
 		}
 		return;
 	}
@@ -1369,7 +1631,7 @@ void jumpWhenMotorsInactive()
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("FAIL: label not found");
+			Serial.println(F("FAIL: label not found"));
 		}
 		return;
 	}
@@ -1383,17 +1645,17 @@ void jumpWhenMotorsInactive()
 		programCounter = labelStatementPos;
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("jump");
+			Serial.println(F("jump"));
 		}
 	}
 	else
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.println("continue");
+			Serial.println(F("continue"));
 		}
 #ifdef JUMP_MOTORS_INACTIVE_DEBUG
-		Serial.println("Motors running - continuing");
+		Serial.println(F("Motors running - continuing"));
 #endif
 	}
 
@@ -1404,18 +1666,18 @@ void programControl()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
-		Serial.println("FAIL: missing program control command character");
+		Serial.println(F("FAIL: missing program control command character"));
 		return;
 	}
 
 #ifdef COMMAND_DEBUG
-	Serial.println(".**remoteProgramControl: ");
+	Serial.println(F(".**remoteProgramControl: "));
 #endif
 
 	char commandCh = *decodePos;
 
 #ifdef COMMAND_DEBUG
-	Serial.print(".   Program command : ");
+	Serial.print(F(".   Program command : "));
 	Serial.println(commandCh);
 #endif
 
@@ -1447,6 +1709,10 @@ void programControl()
 	case 'm':
 		measureDistanceAndJump();
 		break;
+	case 'T':
+	case 't':
+		jumpToLabelCoinToss();
+		break;
 	}
 }
 
@@ -1458,12 +1724,12 @@ void remoteDownload()
 {
 
 #ifdef REMOTE_DOWNLOAD_DEBUG
-	Serial.println(".**remote download");
+	Serial.println(F(".**remote download"));
 #endif
 
 	if (deviceState != ACCEPTING_COMMANDS)
 	{
-		Serial.println("RMFAIL: not accepting commands");
+		Serial.println(F("RMFAIL: not accepting commands"));
 		return;
 	}
 
@@ -1476,7 +1742,7 @@ void startProgramCommand()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("RSOK");
+		Serial.println(F("RSOK"));
 	}
 }
 
@@ -1487,7 +1753,7 @@ void haltProgramExecutionCommand()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("RHOK");
+		Serial.println(F("RHOK"));
 	}
 }
 
@@ -1495,18 +1761,18 @@ void remoteManagement()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
-		Serial.println("FAIL: missing remote control command character");
+		Serial.println(F("FAIL: missing remote control command character"));
 		return;
 	}
 
 #ifdef COMMAND_DEBUG
-	Serial.println(".**remoteProgramDownload: ");
+	Serial.println(F(".**remoteProgramDownload: "));
 #endif
 
 	char commandCh = *decodePos;
 
 #ifdef COMMAND_DEBUG
-	Serial.print(".   Download command : ");
+	Serial.print(F(".   Download command : "));
 	Serial.println(commandCh);
 #endif
 
@@ -1537,7 +1803,7 @@ void remoteManagement()
 	}
 }
 
-const String version = "Version 1.0";
+const String version = "Version 2.0";
 
 // IV - information display version
 
@@ -1545,7 +1811,7 @@ void displayVersion()
 {
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("IVOK");
+		Serial.println(F("IVOK"));
 	}
 
 	Serial.println(version);
@@ -1555,7 +1821,7 @@ void displayDistance()
 {
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("IDOK");
+		Serial.println(F("IDOK"));
 	}
 	Serial.println(getDistanceValue());
 }
@@ -1564,7 +1830,7 @@ void printStatus()
 {
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("ISOK");
+		Serial.println(F("ISOK"));
 	}
 	Serial.print(programState);
 	Serial.println(diagnosticsOutputLevel);
@@ -1580,13 +1846,13 @@ void setMessaging()
 {
 
 #ifdef SET_MESSAGING_DEBUG
-		Serial.println(".**informationlevelset: ");
+		Serial.println(F(".**informationlevelset: "));
 #endif
 
 	byte no = readInteger();
 
 #ifdef SET_MESSAGING_DEBUG
-	Serial.print(".  Setting: ");
+	Serial.print(F(".  Setting: "));
 	Serial.println(no);
 #endif
 
@@ -1594,7 +1860,7 @@ void setMessaging()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("IMOK");
+		Serial.println(F("IMOK"));
 	}
 }
 
@@ -1604,26 +1870,37 @@ void printProgram()
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
-		Serial.println("IPOK");
+		Serial.println(F("IPOK"));
 	}
+}
+
+void sendSensorReadings()
+{
+	char buffer[100];
+
+	sprintf(buffer, "{\"version\":%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d]}\r",
+		1, // version 1
+		getDistanceValue(), analogRead(0), analogRead(1), analogRead(2));
+
+	Serial.println(buffer);
 }
 
 void information()
 {
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
-		Serial.println("FAIL: missing information command character");
+		Serial.println(F("FAIL: missing information command character"));
 		return;
 	}
 
 #ifdef COMMAND_DEBUG
-	Serial.println(".**remoteProgramDownload: ");
+	Serial.println(F(".**remoteProgramDownload: "));
 #endif
 
 	char commandCh = *decodePos;
 
 #ifdef COMMAND_DEBUG
-	Serial.print(".   Download command : ");
+	Serial.print(F(".   Download command : "));
 	Serial.println(commandCh);
 #endif
 
@@ -1651,6 +1928,10 @@ void information()
 	case 'p':
 		printProgram();
 		break;
+	case 'R':
+	case 'r':
+		sendSensorReadings();
+		break;
 	}
 }
 
@@ -1662,7 +1943,7 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 	*decodeLimit = 0;
 
 #ifdef COMMAND_DEBUG
-	Serial.print(".**processCommand:");
+	Serial.print(F(".**processCommand:"));
 	Serial.println((char *)decodePos);
 
 #endif
@@ -1670,7 +1951,7 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 	char commandCh = *decodePos;
 
 #ifdef COMMAND_DEBUG
-	Serial.print(".  Command code : ");
+	Serial.print(F(".  Command code : "));
 	Serial.println(commandCh);
 #endif
 
@@ -1703,13 +1984,13 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 		break;
 	default:
 #ifdef COMMAND_DEBUG
-		Serial.println(".  Invalid command : ");
+		Serial.println(F(".  Invalid command : "));
 #endif
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.print("Invalid Command: ");
+			Serial.print(F("Invalid Command: "));
 			Serial.print(commandCh);
-			Serial.print(" code: ");
+			Serial.print(F(" code: "));
 			Serial.println((int)commandCh);
 		}
 	}
@@ -1720,7 +2001,7 @@ void interpretCommandByte(byte b)
 	if (commandPos == bufferLimit)
 	{
 #ifdef COMMAND_DEBUG
-		Serial.println(".  Command buffer full - resetting");
+		Serial.println(F(".  Command buffer full - resetting"));
 #endif
 		resetCommand();
 		return;
@@ -1733,7 +2014,7 @@ void interpretCommandByte(byte b)
 	if (b == STATEMENT_TERMINATOR)
 	{
 #ifdef COMMAND_DEBUG
-		Serial.println(".  Command end");
+		Serial.println(F(".  Command end"));
 #endif
 		processCommand(programCommand, commandPos);
 		resetCommand();
@@ -1761,7 +2042,7 @@ void interpretSerialByte(byte b)
 	if (b == STATEMENT_TERMINATOR)
 	{
 #ifdef COMMAND_DEBUG
-		Serial.println(".  Command end");
+		Serial.println(F(".  Command end"));
 #endif
 		processCommand(remoteCommand, remotePos);
 		resetSerialBuffer();
@@ -1772,7 +2053,7 @@ void interpretSerialByte(byte b)
 void processSerialByte(byte b)
 {
 #ifdef COMMAND_DEBUG
-	Serial.print(".**processSerialByte: ");
+	Serial.print(F(".**processSerialByte: "));
 	Serial.println((char)b);
 #endif
 
@@ -1791,7 +2072,7 @@ void processSerialByte(byte b)
 void setupRemoteControl()
 {
 #ifdef COMMAND_DEBUG
-	Serial.println(".**setupRemoteControl");
+	Serial.println(F(".**setupRemoteControl"));
 #endif
 	resetCommand();
 	resetSerialBuffer();
@@ -1805,12 +2086,12 @@ bool exeuteProgramStatement()
 	char programByte;
 
 #ifdef PROGRAM_DEBUG
-	Serial.println(".Executing statement");
+	Serial.println(F(".Executing statement"));
 #endif
 
 	if (diagnosticsOutputLevel & LINE_NUMBERS)
 	{
-		Serial.print("Offset: ");
+		Serial.print(F("Offset: "));
 		Serial.println((int)programCounter);
 	}
 
@@ -1825,7 +2106,7 @@ bool exeuteProgramStatement()
 		}
 
 #ifdef PROGRAM_DEBUG
-		Serial.print(".    program byte: ");
+		Serial.print(F(".    program byte: "));
 		Serial.println(programByte);
 #endif
 

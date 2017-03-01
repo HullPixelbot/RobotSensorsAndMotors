@@ -2,273 +2,588 @@
 /// Motor control
 ///////////////////////////////////////////////////////////
 
-char lmotorPos = 0;
-char lmotorDelta = 1;
+#include <TimerOne.h>
+#include <limits.h>
+#include <math.h>
 
-char rmotorPos = 0;
-char rmotorDelta = 1;
+const byte leftMotorWaveformLookup[8] = { B10000000, B11000000, B01000000, B01100000, B00100000, B00110000, B00010000, B10010000 };
+const byte rightMotorWaveformLookup[8] = { B01000, B01100, B00100, B00110, B00010, B00011, B00001, B01001 };
 
-static const long motorStepTime = 120;
+volatile char leftMotorWaveformPos = 0;
+volatile char leftMotorWaveformDelta = 0;
 
-const static float leftWheelRadius = 72.0 / 2.0;
-float leftWheelCircumference;
-const static float rightWheelRadius = 72.0 / 2.0;
-float rightWheelCircumference;
-const static float wheelSpacing = 105.0;
+volatile char rightMotorWaveformPos = 0;
+volatile char rightMotorWaveformDelta = 0;
+
+volatile unsigned long leftStepCounter = 0;
+volatile unsigned long leftNumberOfStepsToMove = 1000;
+
+volatile unsigned long rightStepCounter = 0;
+volatile unsigned long rightNumberOfStepsToMove = 1000;
+
+volatile unsigned long leftIntervalBetweenSteps;
+volatile unsigned long rightIntervalBetweenSteps;
+
+volatile unsigned long leftTimeOfLastStep;
+volatile unsigned long rightTimeOfLastStep;
+
+volatile unsigned long leftTimeOfNextStep;
+volatile unsigned long rightTimeOfNextStep;
+
+inline void leftStep()
+{
+	// If we are not moving, don't do anything
+	if (leftMotorWaveformDelta == 0)return;
+
+	// Move the motor one step
+
+#ifdef WEMOS
+	setLeft(lmotorPos);
+#else
+	PORTD = (PORTD & 0x0F) + leftMotorWaveformLookup[leftMotorWaveformPos];
+#endif
+
+	// Update and wrap the waveform position
+	leftMotorWaveformPos += leftMotorWaveformDelta;
+	if (leftMotorWaveformPos == 8) leftMotorWaveformPos = 0;
+	if (leftMotorWaveformPos < 0) leftMotorWaveformPos = 7;
+
+	// If we are not counting steps - just return
+
+	// Check for end of move
+	if (++leftStepCounter >= leftNumberOfStepsToMove)
+	{
+		leftMotorWaveformDelta = 0;
+		PORTD = (PORTD & 0x0F);
+	}
+}
+
+inline void rightStep()
+{
+	if (rightMotorWaveformDelta == 0)return;
+
+#ifdef WEMOS
+	setRight(rmotorPos);
+#else
+	PORTB = (PORTB & 0xF0) + rightMotorWaveformLookup[rightMotorWaveformPos];
+#endif
+
+	rightMotorWaveformPos -= rightMotorWaveformDelta;
+	if (rightMotorWaveformPos == 8) rightMotorWaveformPos = 0;
+	if (rightMotorWaveformPos < 0) rightMotorWaveformPos = 7;
+
+	if (++rightStepCounter >= rightNumberOfStepsToMove)
+	{
+		rightMotorWaveformDelta = 0;
+		PORTB = (PORTB & 0xF0);
+	}
+}
+
 float turningCircle;
-double ticksPerSecond;
-
 const int countsperrev = 512 * 8; // number of microsteps per full revolution
 
-volatile long leftStepCounter = 0;
-volatile long leftStepLimit = 1000;
+float leftStepsPerMM;
+float rightStepsPerMM;
 
-volatile long rightStepCounter = 0;
-volatile long rightStepLimit = 1000;
-
-volatile bool leftMoving = false;
-volatile bool rightMoving = false;
-
-volatile bool leftCountingSteps = false;
-volatile bool rightCountingSteps = false;
-
-volatile bool leftTimedOut = true;
-volatile bool rightTimedOut = true;
-
-const static long motorTimeoutLimit = 20;
-long lmotorTimeoutCounter;
-long rmotorTimeoutCounter;
-
-const byte leftMotorLookup[8] = { B10000000, B11000000, B01000000, B01100000, B00100000, B00110000, B00010000, B10010000 };
-const byte rightMotorLookup[8] = { B01000, B01100, B00100, B00110, B00010, B00011, B00001, B01001 };
-
-#ifdef WEMOS
-
-//declare variables for the motor pins
-int rmotorPin1 = 16;    // Blue   - 28BYJ48 pin 1
-int rmotorPin2 = 5;    // Pink   - 28BYJ48 pin 2
-int rmotorPin3 = 4;   // Yellow - 28BYJ48 pin 3
-int rmotorPin4 = 0;   // Orange - 28BYJ48 pin 4
-             // Red    - 28BYJ48 pin 5 (VCC)
-
-int lmotorPin1 = 2;    // Blue   - 28BYJ48 pin 1
-int lmotorPin2 = 14;    // Pink   - 28BYJ48 pin 2
-int lmotorPin3 = 12;   // Yellow - 28BYJ48 pin 3
-int lmotorPin4 = 13;   // Orange - 28BYJ48 pin 4
-             // Red    - 28BYJ48 pin 5 (VCC)
-
-
-int motorSpeed = 1200;  //variable to set stepper speed
-int count = 0;          // count of steps made
-int countsperrev = 512; // number of steps per full revolution
-int lookup[8] = { B01000, B01100, B00100, B00110, B00010, B00011, B00001, B01001 };
-
-
-//////////////////////////////////////////////////////////////////////////////
-void setupWemos() {
-  //declare the motor pins as outputs
-  pinMode(lmotorPin1, OUTPUT);
-  pinMode(lmotorPin2, OUTPUT);
-  pinMode(lmotorPin3, OUTPUT);
-  pinMode(lmotorPin4, OUTPUT);
-  pinMode(rmotorPin1, OUTPUT);
-  pinMode(rmotorPin2, OUTPUT);
-  pinMode(rmotorPin3, OUTPUT);
-  pinMode(rmotorPin4, OUTPUT);
-}
-
-
-void setLeft(int leftOut)
+struct wheelSettings
 {
-  digitalWrite(lmotorPin1, bitRead(lookup[leftOut], 0));
-  digitalWrite(lmotorPin2, bitRead(lookup[leftOut], 1));
-  digitalWrite(lmotorPin3, bitRead(lookup[leftOut], 2));
-  digitalWrite(lmotorPin4, bitRead(lookup[leftOut], 3));
+	int leftWheelDiameter;
+	int rightWheelDiameter;
+	int wheelSpacing;
+	char check;
+};
+
+wheelSettings activeWheelSettings;
+
+#define WHEEL_SETTINGS_STORED 0x55
+
+void storeActiveWheelSettings()
+{
+	storeBlockIntoEEPROM((uint8_t *)& activeWheelSettings, sizeof(struct wheelSettings), WHEEL_SETTINGS_OFFSET);
 }
 
-void setRight(int rightOut)
+void setActiveWheelSettings(int leftDiam, int rightDiam, int spacing)
 {
-  digitalWrite(rmotorPin1, bitRead(lookup[rightOut], 0));
-  digitalWrite(rmotorPin2, bitRead(lookup[rightOut], 1));
-  digitalWrite(rmotorPin3, bitRead(lookup[rightOut], 2));
-  digitalWrite(rmotorPin4, bitRead(lookup[rightOut], 3));
+	activeWheelSettings.leftWheelDiameter = leftDiam;
+	activeWheelSettings.rightWheelDiameter = rightDiam;
+	activeWheelSettings.wheelSpacing = spacing;
+	storeActiveWheelSettings();
 }
+
+void dumpActiveWheelSettings()
+{
+	Serial.println(F("Wheel settings"));
+	Serial.print(F("Left diameter: "));
+	Serial.println(activeWheelSettings.leftWheelDiameter);
+	Serial.print(F("Right diameter: "));
+	Serial.println(activeWheelSettings.rightWheelDiameter);
+	Serial.print(F("Wheel spacing: "));
+	Serial.println(activeWheelSettings.wheelSpacing);
+}
+
+//#define DEBUG_LOAD_ACTIVE_WHEEL_SETTINGS
+
+void loadActiveWheelSettings()
+{
+
+#ifdef DEBUG_LOAD_ACTIVE_WHEEL_SETTINGS
+	Serial.println(F("Loading active wheel settings"));
+#endif
+
+	loadBlockFromEEPROM((uint8_t *)& activeWheelSettings, sizeof(struct wheelSettings), WHEEL_SETTINGS_OFFSET);
+
+	if (activeWheelSettings.check != WHEEL_SETTINGS_STORED)
+	{
+
+#ifdef DEBUG_LOAD_ACTIVE_WHEEL_SETTINGS
+		Serial.println(F("No settings found - using default"));
+#endif
+
+		activeWheelSettings.leftWheelDiameter = 69;
+		activeWheelSettings.rightWheelDiameter = 69;
+		activeWheelSettings.wheelSpacing = 110;
+		activeWheelSettings.check = WHEEL_SETTINGS_STORED;
+		storeActiveWheelSettings();
+	}
+
+#ifdef DEBUG_LOAD_ACTIVE_WHEEL_SETTINGS
+	Serial.print(F("left radius: "));
+	Serial.print(activeWheelSettings.leftWheelRadius);
+	Serial.print(F(" right radius: "));
+	Serial.print(activeWheelSettings.rightWheelRadius);
+	Serial.print(F(" wheel spacing: "));
+	Serial.println(activeWheelSettings.wheelSpacing);
+#endif
+}
+
+float leftWheelCircumference;
+float rightWheelCircumference;
+
+void setupWheelSettings()
+{
+	leftWheelCircumference = PI * activeWheelSettings.leftWheelDiameter;
+	rightWheelCircumference = PI * activeWheelSettings.rightWheelDiameter;
+	turningCircle = activeWheelSettings.wheelSpacing * PI;
+
+	leftStepsPerMM = countsperrev / leftWheelCircumference;
+	rightStepsPerMM = countsperrev / rightWheelCircumference;
+}
+
+void setupMotors()
+{
+	DDRD = 0xFF;
+	DDRB = 0x0F;
+
+	loadActiveWheelSettings();
+
+	setupWheelSettings();
+
+	Timer1.initialize(1000);
+}
+
+inline unsigned long ulongDiff(unsigned long end, unsigned long start)
+{
+	if (end >= start)
+	{
+		return end - start;
+	}
+	else
+	{
+		return ULONG_MAX - start + end;
+	}
+}
+
+volatile unsigned long currentMicros;
+volatile unsigned long leftTimeSinceLastStep;
+volatile unsigned long rightTimeSinceLastStep;
+volatile unsigned long timeToLeft;
+volatile unsigned long timeToRight;
+
+// If we try to trigger an interrupt too soon after the current one
+// this causes problems. If the time to the next interrupt is less than 
+// this figure we act on it now and then add the latency to the time of the 
+// next tick
+
+const unsigned long interruptLatencyInMicroSecs = 100;
+
+// The lowest interval between steps that is allowed
+// used to calculate timed moves
+
+const unsigned long minInterruptIntervalInMicroSecs = 1200;
+
+void motorUpdate()
+{
+	// This method runs when a move interrupt has fired
+	// The interrupts are timed to fire when the next move is due
+	// The interrupt will be delayed if the time of the next one 
+	// is less than the set latency 
+
+	currentMicros = micros();
+
+	if (leftMotorWaveformDelta != 0)
+	{
+		// left is moving - see if it is time to do a step
+		leftTimeSinceLastStep = ulongDiff(currentMicros, leftTimeOfLastStep);
+		if (leftTimeSinceLastStep >= leftIntervalBetweenSteps)
+		{
+			leftStep();
+			leftTimeOfLastStep = currentMicros - (leftTimeSinceLastStep - leftIntervalBetweenSteps);
+			leftTimeOfNextStep = currentMicros + leftIntervalBetweenSteps;
+		}
+	}
+
+	if (rightMotorWaveformDelta != 0)
+	{
+		rightTimeSinceLastStep = ulongDiff(currentMicros, rightTimeOfLastStep);
+
+		if (rightTimeSinceLastStep >= rightIntervalBetweenSteps)
+		{
+			rightStep();
+			rightTimeOfLastStep = currentMicros - (rightTimeSinceLastStep - rightIntervalBetweenSteps);
+			rightTimeOfNextStep = currentMicros + rightIntervalBetweenSteps;
+		}
+	}
+
+	if ((leftMotorWaveformDelta != 0) & (rightMotorWaveformDelta != 0))
+	{
+		timeToLeft = ulongDiff(leftTimeOfNextStep, currentMicros);
+		timeToRight = ulongDiff(rightTimeOfNextStep, currentMicros);
+
+		if (timeToLeft < timeToRight)
+		{
+			// If the time for the interrupt is too short - 
+			// inccrease the value to the tolerance
+			if (timeToLeft < interruptLatencyInMicroSecs)
+				timeToLeft = interruptLatencyInMicroSecs;
+			Timer1.setPeriod(timeToLeft);
+		}
+		else
+		{
+			if (timeToRight < interruptLatencyInMicroSecs)
+				timeToRight = interruptLatencyInMicroSecs;
+			Timer1.setPeriod(timeToRight);
+		}
+		return;
+	}
+	else
+	{
+		if (leftMotorWaveformDelta != 0)
+		{
+			timeToLeft = ulongDiff(leftTimeOfNextStep, currentMicros);
+			if (timeToLeft < interruptLatencyInMicroSecs)
+				timeToLeft = interruptLatencyInMicroSecs;
+			Timer1.setPeriod(timeToLeft);
+			return;
+		}
+		else
+		{
+			timeToRight = ulongDiff(rightTimeOfNextStep, currentMicros);
+			if (timeToRight < interruptLatencyInMicroSecs)
+				timeToRight = interruptLatencyInMicroSecs;
+			Timer1.setPeriod(timeToRight);
+			return;
+		}
+	}
+
+	// if we get here both motors have stopped
+	// turn off the interrupts
+	Timer1.detachInterrupt();
+}
+
+void startMotor(unsigned long stepLimit, unsigned long microSecsPerPulse, bool forward,
+	volatile unsigned long * motorStepLimit, volatile unsigned long * motorPulseInterval,
+	volatile char * motorDelta, volatile char * motorPos)
+{
+	// If we are not moving - set the delta to zero and return
+
+	if (stepLimit == 0)
+	{
+		motorDelta = 0;
+		return;
+	}
+
+	*motorStepLimit = stepLimit;
+
+	*motorPulseInterval = microSecsPerPulse;
+
+	if (forward)
+	{
+		*motorDelta = 1;
+	}
+	else
+	{
+		*motorDelta = -1;
+	}
+
+	*motorPos = 0;
+}
+
+void startMotors(
+	unsigned long leftSteps, unsigned long rightSteps,
+	unsigned long leftMicroSecsPerPulse, unsigned long rightMicroSecsPerPulse,
+	bool leftForward, bool rightForward)
+{
+	// Set up the counters for the left and right motor moves
+
+	startMotor(leftSteps, leftMicroSecsPerPulse, leftForward,
+		&leftNumberOfStepsToMove, &leftIntervalBetweenSteps, &leftMotorWaveformDelta, &leftMotorWaveformPos);
+
+	startMotor(rightSteps, rightMicroSecsPerPulse, rightForward,
+		&rightNumberOfStepsToMove, &rightIntervalBetweenSteps, &rightMotorWaveformDelta, &rightMotorWaveformPos);
+
+	// Now set up the interrupts 
+
+	unsigned long microSecondsAtLastInterrupt = micros();
+
+	leftTimeOfLastStep = microSecondsAtLastInterrupt;
+	rightTimeOfLastStep = microSecondsAtLastInterrupt;
+
+	leftStepCounter = 0;
+	rightStepCounter = 0;
+
+	// These calculations might wrap round - but that's OK because the difference 
+	// calculation in the interrupt handler will deal with this
+
+	leftTimeOfNextStep = microSecondsAtLastInterrupt + leftMicroSecsPerPulse;
+	rightTimeOfNextStep = microSecondsAtLastInterrupt + rightMicroSecsPerPulse;
+
+	if ((leftMotorWaveformDelta != 0) & (rightMotorWaveformDelta != 0))
+	{
+		if (leftMicroSecsPerPulse < rightMicroSecsPerPulse)
+		{
+			Timer1.attachInterrupt(motorUpdate, leftMicroSecsPerPulse);
+		}
+		else
+		{
+			Timer1.attachInterrupt(motorUpdate, rightMicroSecsPerPulse);
+		}
+		return;
+	}
+	else
+	{
+		if (leftMotorWaveformDelta != 0)
+		{
+			Timer1.attachInterrupt(motorUpdate, leftMicroSecsPerPulse);
+			return;
+		}
+		else
+		{
+			Timer1.attachInterrupt(motorUpdate, rightMicroSecsPerPulse);
+			return;
+		}
+	}
+}
+
+typedef enum MoveFailReason
+{
+	Move_OK,
+	Left_Distance_Too_Large,
+	Right_Distance_Too_Large,
+	Left_And_Right_Distance_Too_Large
+};
+
+//#define DEBUG_TIMED_MOVE
+
+int timedMoveSteps(long leftStepsToMove, long rightStepsToMove, float timeToMoveInSeconds)
+{
+#ifdef DEBUG_TIMED_MOVE
+	Serial.println("timedMoveSteps");
+	Serial.print("    Left steps to move: ");
+	Serial.print(leftStepsToMove);
+	Serial.print(" Right steps to move: ");
+	Serial.print(rightStepsToMove);
+	Serial.print(" Time to move in seconds: ");
+	Serial.println(timeToMoveInSeconds);
+#endif
+
+	long leftInterruptIntervalInMicroSeconds;
+
+	if (leftStepsToMove != 0)
+	{
+		leftInterruptIntervalInMicroSeconds = (long) ((timeToMoveInSeconds / (double)abs(leftStepsToMove)) * 1000000L + 0.5);
+	}
+	else
+	{
+		leftInterruptIntervalInMicroSeconds = minInterruptIntervalInMicroSecs;
+	}
+
+	long rightInterruptIntervalInMicroseconds;
+
+	if (rightStepsToMove != 0)
+	{
+		rightInterruptIntervalInMicroseconds = (long)((timeToMoveInSeconds / (double)abs(rightStepsToMove)) * 1000000L +0.5);
+	}
+	else
+	{
+		rightInterruptIntervalInMicroseconds = minInterruptIntervalInMicroSecs;
+	}
+
+#ifdef DEBUG_TIMED_MOVE
+	Serial.print("    Left interval in microseconds: ");
+	Serial.print(leftInterruptIntervalInMicroSeconds);
+	Serial.print(" Right interval in microseconds: ");
+	Serial.println(rightInterruptIntervalInMicroseconds);
+#endif
+
+	// There's a minium gap allowed between intervals. This is set by the top speed of the motors
+	// Presently set at 1000 microseconds
+
+	if (leftInterruptIntervalInMicroSeconds < minInterruptIntervalInMicroSecs & rightInterruptIntervalInMicroseconds < minInterruptIntervalInMicroSecs)
+	{
+		return Left_And_Right_Distance_Too_Large;
+	}
+
+	if (leftInterruptIntervalInMicroSeconds < minInterruptIntervalInMicroSecs & rightInterruptIntervalInMicroseconds > minInterruptIntervalInMicroSecs)
+	{
+		return Left_Distance_Too_Large;
+	}
+
+	if (rightInterruptIntervalInMicroseconds < minInterruptIntervalInMicroSecs & leftInterruptIntervalInMicroSeconds > minInterruptIntervalInMicroSecs)
+	{
+		return Right_Distance_Too_Large;
+	}
+
+	// If we get here we can move at this speed.
+
+	startMotors(abs(leftStepsToMove), abs(rightStepsToMove),
+		leftInterruptIntervalInMicroSeconds, rightInterruptIntervalInMicroseconds,
+		leftStepsToMove > 0, rightStepsToMove > 0);
+
+	return Move_OK;
+}
+
+//#define DEBUG_FAST_MOVE_STEPS
+
+float fastMoveSteps(long leftStepsToMove, long rightStepsToMove)
+{
+
+#ifdef DEBUG_FAST_MOVE_STEPS
+	Serial.println("fastMoveSteps");
+	Serial.print("    Left steps to move: ");
+	Serial.print(leftStepsToMove);
+	Serial.print(" Right steps to move: ");
+	Serial.println(rightStepsToMove);
+#endif
+
+	// work out how long it will take to move in seconds
+
+	float timeForLeftMoveInSeconds;
+
+	if (leftStepsToMove != 0)
+	{
+		timeForLeftMoveInSeconds = ((float)abs(leftStepsToMove) * (float)minInterruptIntervalInMicroSecs) / 1000000.0;
+	}
+	else
+	{
+		timeForLeftMoveInSeconds = 0;
+	}
+
+	float timeForRightMoveInSeconds;
+
+	if (rightStepsToMove != 0)
+	{
+		timeForRightMoveInSeconds = ((float)abs(rightStepsToMove) * (float)minInterruptIntervalInMicroSecs) / 1000000.0;
+	}
+	else
+	{
+		timeForRightMoveInSeconds = 0;
+	}
+
+#ifdef DEBUG_FAST_MOVE_STEPS
+	Serial.print("    Left time to move: ");
+	Serial.print(timeForLeftMoveInSeconds);
+	Serial.print(" Right time to move: ");
+	Serial.println(timeForRightMoveInSeconds);
+#endif
+
+	// Allow time for the slowest mover
+	if (timeForLeftMoveInSeconds > timeForRightMoveInSeconds)
+	{
+		timedMoveSteps(leftStepsToMove, rightStepsToMove, timeForLeftMoveInSeconds);
+		return timeForLeftMoveInSeconds;
+	}
+	else
+	{
+		timedMoveSteps(leftStepsToMove, rightStepsToMove, timeForLeftMoveInSeconds);
+		return timeForRightMoveInSeconds;
+	}
+}
+
+//#define TIMED_MOVE_MM_DEBUG
+
+int timedMoveDistanceInMM(float leftMMs, float rightMMs, float timeToMoveInSeconds)
+{
+
+#ifdef TIMED_MOVE_MM_DEBUG
+	Serial.println("timedMoveDistanceInMM");
+	Serial.print("    Left mms to move: ");
+	Serial.print(leftMMs);
+	Serial.print(" Right mms to move: ");
+	Serial.print(rightMMs);
+	Serial.print(" Time to move in seconds: ");
+	Serial.println(timeToMoveInSeconds);
+#endif
+
+	long leftSteps = (long)(leftMMs * leftStepsPerMM + 0.5);
+	long rightSteps = (long)(rightMMs * rightStepsPerMM + 0.5);
+
+#ifdef TIMED_MOVE_MM_DEBUG
+	Serial.print("    Left steps to move: ");
+	Serial.print(leftSteps);
+	Serial.print(" Right steps to move: ");
+	Serial.println(rightSteps);
+#endif
+
+	return timedMoveSteps(leftSteps, rightSteps, timeToMoveInSeconds);
+}
+
+//#define FAST_MOVE_MM_DEBUG
+
+int fastMoveDistanceInMM(float leftMMs, float rightMMs)
+{
+
+#ifdef FAST_MOVE_MM_DEBUG
+	Serial.println("fastMoveDistanceInMM");
+	Serial.print("    Left mms to move: ");
+	Serial.print(leftMMs);
+	Serial.print(" Right mms to move: ");
+	Serial.println(rightMMs);
+	Serial.print("    Left mms per step: ");
+	Serial.print(leftStepsPerMM);
+	Serial.print(" Right mms per step: ");
+	Serial.println(rightStepsPerMM);
 
 #endif
 
+	long leftSteps = (long)(leftMMs * leftStepsPerMM + 0.5);
+	long rightSteps = (long)(rightMMs * rightStepsPerMM + 0.5);
 
-void leftStep()
-{
-  // If we are not moving, don't do anything
-  if (!leftMoving)return;
-
-  // Move the motor one step
-
-#ifdef WEMOS
-  setLeft(lmotorPos);
-#else
-  PORTD = (PORTD & 0x0F) + leftMotorLookup[lmotorPos];
+#ifdef FAST_MOVE_MM_DEBUG
+	Serial.print("    Left steps to move: ");
+	Serial.print(leftSteps);
+	Serial.print(" Right steps to move: ");
+	Serial.println(rightSteps);
 #endif
 
-  // Update and wrap the waveform position
-  lmotorPos += lmotorDelta;
-  if (lmotorPos == 8) lmotorPos = 0;
-  if (lmotorPos < 0) lmotorPos = 7;
+	int result = fastMoveSteps(leftSteps, rightSteps);
 
-  // If we are not counting steps - just return
-
-  if (!leftCountingSteps)
-    return;
-
-  // Check for end of move
-  if (++leftStepCounter >= leftStepLimit)
-  {
-    leftMoving = false;
-    lmotorTimeoutCounter = 0;
-  }
-}
-
-void rightStep()
-{
-  if (!rightMoving)return;
-
-#ifdef WEMOS
-  setRight(rmotorPos);
-#else
-  PORTB = (PORTB & 0xF0) + rightMotorLookup[rmotorPos];
-#endif
-
-  rmotorPos -= rmotorDelta;
-  if (rmotorPos == 8) rmotorPos = 0;
-  if (rmotorPos < 0) rmotorPos = 7;
-
-  if (!rightCountingSteps)
-    return;
-
-  if (++rightStepCounter >= rightStepLimit)
-  {
-    rightMoving = false;
-    rmotorTimeoutCounter = 0;
-  }
+	return result;
 }
 
 void rightStop()
 {
-  rightMoving = false;
   PORTB = (PORTB & 0xF0);
-  rmotorPos = 0;
+  rightMotorWaveformDelta = 0;
   rightStepCounter = 0;
 }
 
 void leftStop()
 {
-  leftMoving = false;
   PORTD = (PORTD & 0x0F);
-  lmotorPos = 0;
+  leftMotorWaveformDelta = 0;
   leftStepCounter = 0;
 }
 
-int leftCountsPerStep = 10;
-int rightCountsPerStep = 10;
-int leftCounter = 0;
-int rightCounter = 0;
-
-void motorUpdate()
-{
-  if (!leftTimedOut)
-  {
-    if (!leftMoving)
-    {
-      if (++lmotorTimeoutCounter > motorTimeoutLimit)
-      {
-        leftStop();
-        leftTimedOut = true;
-      }
-    }
-    else {
-      if (++leftCounter >= leftCountsPerStep)
-      {
-        leftStep();
-        leftCounter = 0;
-      }
-    }
-  }
-
-  if (!rightTimedOut)
-  {
-    if (!rightMoving)
-    {
-      if (++rmotorTimeoutCounter > motorTimeoutLimit)
-      {
-        rightStop();
-        rightTimedOut = true;
-      }
-    }
-    else
-    {
-      if (++rightCounter >= rightCountsPerStep)
-      {
-        rightStep();
-        rightCounter = 0;
-      }
-    }
-  }
-}
-
-void leftDriveOn(bool countingSteps)
-{
-  leftCountingSteps = countingSteps;
-  lmotorPos = 0;
-  leftCounter = 0;
-  leftStepCounter = 0;
-  leftTimedOut = false;
-  lmotorTimeoutCounter = 0;
-  leftMoving = true;
-}
-
-void leftForwards(long countsPerStep)
-{
-  leftStepLimit = 0;
-  leftCountsPerStep = countsPerStep;
-  lmotorDelta = 1;
-  leftDriveOn(false);
-}
-
-void leftBackwards(long countsPerStep)
-{
-  leftCountingSteps = false;
-  leftStepLimit = 0;
-  leftCountsPerStep = countsPerStep;
-  lmotorDelta = -1;
-  leftDriveOn(false);
-}
-
-void rightDriveOn(bool countingSteps)
-{
-  rightCountingSteps = countingSteps;
-  rmotorPos = 0;
-  rightCounter = 0;
-  rightStepCounter = 0;
-  rightTimedOut = false;
-  rmotorTimeoutCounter = 0;
-  rightMoving = true;
-}
-
-void rightForwards(long countsPerStep)
-{
-  rightStepLimit = 0;
-  rightCountsPerStep = countsPerStep;
-  rmotorDelta = 1;
-  rightDriveOn(false);
-}
-
-void rightBackwards(long countsPerStep)
-{
-  rightStepLimit = 0;
-  rightCountsPerStep = countsPerStep;
-  rmotorDelta = -1;
-  rightDriveOn(false);
-}
 
 void motorStop()
 {
@@ -278,8 +593,8 @@ void motorStop()
 
 bool motorsMoving()
 {
-  if (rightMoving)return true;
-  if (leftMoving)return true;
+  if (rightMotorWaveformDelta != 0) return true;
+  if (leftMotorWaveformDelta != 0) return true;
   return false;
 }
 
@@ -289,54 +604,18 @@ void waitForMotorsStop()
     delay(1);
 }
 
-void calculateSteps(float moveDistance, float wheelcircumference, volatile long *moveSteps, volatile char *moveDelta)
-{
-  if (moveDistance < 0)
-  {
-    *moveDelta = -1;
-    moveDistance = moveDistance *-1;
-  }
-  else
-  {
-    *moveDelta = 1;
-  }
+//#define DEBUG_FAST_ROTATE
 
-  float turns = moveDistance / wheelcircumference;
-  *moveSteps = (long)(turns*countsperrev);
-
-#ifdef VERBOSE
-  Serial.print("calculateMove Turns: ");
-  Serial.println(turns);
-#endif
-}
-
-void moveRobot(int leftDistance, int rightDistance, int leftSpeed, int rightSpeed)
-{
-  calculateSteps(leftDistance, leftWheelCircumference, &leftStepLimit, &lmotorDelta);
-  calculateSteps(rightDistance, rightWheelCircumference, &rightStepLimit, &rmotorDelta);
-  leftDriveOn(true);
-  rightDriveOn(true);
-}
-
-
-void moveRobotForwards(int leftSpeed, int rightSpeed)
-{
-  leftForwards(leftSpeed);
-  rightForwards(rightSpeed);
-}
-
-
-void rotateRobot(float angle, int rotateSpeed)
+void fastRotateRobot(float angle)
 {
   float noOfTurns = angle / 360.0;
   float distanceToRotate = noOfTurns*turningCircle;
-  moveRobot(distanceToRotate, -distanceToRotate, rotateSpeed, rotateSpeed);
 
-#ifdef VERBOSE
+  fastMoveDistanceInMM(distanceToRotate, -distanceToRotate);
+
+#ifdef DEBUG_FAST_ROTATE
   Serial.print(". angle: ");
   Serial.print(angle);
-  Serial.print(" rotateSpeed: ");
-  Serial.print(rotateSpeed);
   Serial.print(" noOfTurns: ");
   Serial.print(noOfTurns);
   Serial.print(" distanceToRotate: ");
@@ -344,68 +623,23 @@ void rotateRobot(float angle, int rotateSpeed)
 #endif
 }
 
+//#define DEBUG_TIMED_ROTATE
 
-///////////////////////////////////////////////////////////
-/// Light sensor
-///////////////////////////////////////////////////////////
-
-int getLightLevel()
+int timedRotateRobot(float angle,float timeToMoveInSeconds)
 {
-  return analogRead(A0);
-}
+	float noOfTurns = angle / 360.0;
+	float distanceToRotate = noOfTurns*turningCircle;
 
-///////////////////////////////////////////////////////////
-/// Serial comms 
-///////////////////////////////////////////////////////////
-
-int CharsAvailable()
-{
-  return Serial.available();
-}
-
-byte GetRawCh()
-{
-  int ch;
-  do
-  {
-    ch = Serial.read();
-  } while (ch < 0);
-
-  return (byte)ch;
-}
-
-void setupRobotNotors()
-{
-#ifdef WEMOS
-
-  setupWemos();
-
-#else
-
-  DDRD = 0xFF;
-  DDRB = 0x0F;
-
+#ifdef DEBUG_TIMED_ROTATE
+	Serial.print(". angle: ");
+	Serial.print(angle);
+	Serial.print(" noOfTurns: ");
+	Serial.print(noOfTurns);
+	Serial.print(" time: ");
+	Serial.print(timeToMoveInSeconds);
+	Serial.print(" distanceToRotate: ");
+	Serial.println(distanceToRotate);
 #endif
 
-  leftWheelCircumference = 2 * PI * leftWheelRadius;
-  rightWheelCircumference = 2 * PI * rightWheelRadius;
-  turningCircle = wheelSpacing * PI;
-  ticksPerSecond = 1000000 / motorStepTime;
-  Timer1.initialize(motorStepTime);
-  Timer1.attachInterrupt(motorUpdate);
-
-#ifdef VERBOSE
-  Serial.print(".leftWheelCircumference: ");
-  Serial.print(leftWheelCircumference);
-  Serial.print(" rightWheelCircumference: ");
-  Serial.print(rightWheelCircumference);
-  Serial.print(" turningCircle: ");
-  Serial.print(turningCircle);
-  Serial.print(" ticksPerSecond: ");
-  Serial.println(ticksPerSecond);
-#endif
-
+	return timedMoveDistanceInMM(distanceToRotate, -distanceToRotate, timeToMoveInSeconds);
 }
-
-
-
