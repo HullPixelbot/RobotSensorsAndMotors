@@ -504,7 +504,7 @@ float fastMoveSteps(long leftStepsToMove, long rightStepsToMove)
 	}
 	else
 	{
-		timedMoveSteps(leftStepsToMove, rightStepsToMove, timeForLeftMoveInSeconds);
+		timedMoveSteps(leftStepsToMove, rightStepsToMove, timeForRightMoveInSeconds);
 		return timeForRightMoveInSeconds;
 	}
 }
@@ -643,3 +643,72 @@ int timedRotateRobot(float angle,float timeToMoveInSeconds)
 
 	return timedMoveDistanceInMM(distanceToRotate, -distanceToRotate, timeToMoveInSeconds);
 }
+
+//#define DEBUG_FAST_ARC
+
+void fastMoveArcRobot(float radius,float angle)
+{
+	float noOfTurns = angle / 360.0;
+	float absRadius = abs(radius);
+
+	float leftDistanceToMove = noOfTurns*((absRadius +(activeWheelSettings.wheelSpacing /2.0))*2.0*PI);
+	float rightDistanceToMove = noOfTurns*((absRadius - (activeWheelSettings.wheelSpacing / 2.0))*2.0*PI);
+
+#ifdef DEBUG_FAST_ARC
+	Serial.println("fastMoveArcRobot");
+	Serial.print(" radius: ");
+	Serial.print(radius);
+	Serial.print(" angle: ");
+	Serial.print(angle);
+	Serial.print(" leftDistanceToMove: ");
+	Serial.print(leftDistanceToMove);
+	Serial.print(" rightDistanceToMove: ");
+	Serial.println(rightDistanceToMove);
+#endif
+
+	if (radius >= 0)
+	{
+		fastMoveDistanceInMM(leftDistanceToMove, rightDistanceToMove);
+	}
+	else
+	{
+		fastMoveDistanceInMM(rightDistanceToMove, leftDistanceToMove);
+	}
+}
+
+//#define DEBUG_TIMED_ARC
+
+int timedMoveArcRobot(float radius, float angle, float timeToMoveInSeconds)
+{
+	float noOfTurns = angle / 360.0;
+	float absRadius = abs(radius);
+
+	float leftDistanceToMove = noOfTurns*((absRadius + (activeWheelSettings.wheelSpacing / 2.0))*2.0*PI);
+	float rightDistanceToMove = noOfTurns*((absRadius - (activeWheelSettings.wheelSpacing / 2.0))*2.0*PI);
+
+#ifdef DEBUG_TIMED_ARC
+	Serial.println("timedMoveArcRobot");
+	Serial.print(" radius: ");
+	Serial.print(radius);
+	Serial.print(" angle: ");
+	Serial.print(angle);
+	Serial.print(" time: ");
+	Serial.print(timeToMoveInSeconds);
+	Serial.print(" leftDistanceToMove: ");
+	Serial.print(leftDistanceToMove);
+	Serial.print(" rightDistanceToMove: ");
+	Serial.println(rightDistanceToMove);
+#endif
+
+	if (radius >= 0)
+	{
+		return timedMoveDistanceInMM(leftDistanceToMove, rightDistanceToMove, timeToMoveInSeconds);
+	}
+	else
+	{
+		return timedMoveDistanceInMM(rightDistanceToMove, leftDistanceToMove, timeToMoveInSeconds);
+	}
+
+
+}
+

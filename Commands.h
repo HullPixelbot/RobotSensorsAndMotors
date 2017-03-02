@@ -492,6 +492,105 @@ void remoteMoveForwards()
 	}
 }
 
+// Command MAradius,angle,time - move arc. 
+// radius - radius of the arc to move
+// angle of the arc to move
+// time - time for the move
+//
+// Return OK
+
+//#define MOVE_ANGLE_DEBUG
+
+void remoteMoveAngle()
+{
+#ifdef MOVE_ANGLE_DEBUG
+	Serial.println(".**moveAngle");
+#endif
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MAFail: no radius"));
+		}
+		return;
+	}
+
+	int radius = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MAFail: no angle"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MAFail: no angle"));
+		}
+		return;
+	}
+
+	int angle = readInteger();
+
+	if (*decodePos == STATEMENT_TERMINATOR)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MAOK"));
+		}
+		fastMoveArcRobot(radius, angle);
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("MAFail: no time"));
+		}
+		return;
+	}
+
+	int time = readInteger();
+
+#ifdef MOVE_ANGLE_DEBUG
+	Serial.print("    radius: ");
+	Serial.print(radius);
+	Serial.print(" angle: ");
+	Serial.print(angle);
+	Serial.print(" time: ");
+	Serial.println(time);
+#endif
+
+	int reply = timedMoveArcRobot(radius, angle, time / 10.0);
+
+	if (reply == 0)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MAOK"));
+		}
+	}
+	else
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("MAFail"));
+		}
+	}
+}
+
+
 // Command MMld,rd,time - move motors. 
 // ld - left distance
 // rd - right distance
@@ -599,7 +698,7 @@ void remoteMoveMotors()
 // all dimensions in mm
 #// Return OK
 
-#define CONFIG_WHEELS_DEBUG
+//#define CONFIG_WHEELS_DEBUG
 
 void remoteConfigWheels()
 {
@@ -803,6 +902,65 @@ void remoteStopRobot()
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
 		Serial.println("MSOK");
+	}
+}
+
+
+void remoteMoveControl()
+{
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		Serial.println(F("FAIL: mising move control command character"));
+		return;
+	}
+
+#ifdef COMMAND_DEBUG
+	Serial.println(".**remoteMoveControl: ");
+#endif
+
+	char commandCh = *decodePos;
+
+#ifdef COMMAND_DEBUG
+	Serial.print(".  Move Command code : ");
+	Serial.println(commandCh);
+#endif
+
+	decodePos++;
+
+	switch (commandCh)
+	{
+	case 'A':
+	case 'a':
+		remoteMoveAngle();
+		break;
+	case 'F':
+	case 'f':
+		remoteMoveForwards();
+		break;
+	case 'R':
+	case 'r':
+		remoteRotateRobot();
+		break;
+	case 'M':
+	case 'm':
+		remoteMoveMotors();
+		break;
+	case 'C':
+	case 'c':
+		checkMoving();
+		break;
+	case 'S':
+	case 's':
+		remoteStopRobot();
+		break;
+	case 'V':
+	case 'v':
+		remoteViewWheelConfig();
+		break;
+	case 'W':
+	case 'w':
+		remoteConfigWheels();
+		break;
 	}
 }
 
@@ -1080,61 +1238,6 @@ void remotePixelControl()
 		break;
 	}
 }
-
-void remoteMoveControl()
-{
-	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
-	{
-		Serial.println(F("FAIL: mising move control command character"));
-		return;
-	}
-
-#ifdef COMMAND_DEBUG
-	Serial.println(".**remoteMoveControl: ");
-#endif
-
-	char commandCh = *decodePos;
-
-#ifdef COMMAND_DEBUG
-	Serial.print(".  Move Command code : ");
-	Serial.println(commandCh);
-#endif
-
-	decodePos++;
-
-	switch (commandCh)
-	{
-	case 'F':
-	case 'f':
-		remoteMoveForwards();
-		break;
-	case 'R':
-	case 'r':
-		remoteRotateRobot();
-		break;
-	case 'M':
-	case 'm':
-		remoteMoveMotors();
-		break;
-	case 'C':
-	case 'c':
-		checkMoving();
-		break;
-	case 'S':
-	case 's':
-		remoteStopRobot();
-		break;
-	case 'V':
-	case 'v':
-		remoteViewWheelConfig();
-		break;
-	case 'W':
-	case 'w':
-		remoteConfigWheels();
-		break;
-	}
-}
-
 
 // Command CDddd - delay time
 // Command CD    - previous delay
@@ -1803,7 +1906,7 @@ void remoteManagement()
 	}
 }
 
-const String version = "Version 2.0";
+const String version = "Version 2.1";
 
 // IV - information display version
 
