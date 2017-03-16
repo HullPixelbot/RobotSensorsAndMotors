@@ -1981,9 +1981,9 @@ void sendSensorReadings()
 {
 	char buffer[100];
 
-	sprintf(buffer, "{\"version\":%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d]}\r",
+	sprintf(buffer, "{\"version\":%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d],\"voltage\":%d}\r",
 		1, // version 1
-		getDistanceValue(), analogRead(0), analogRead(1), analogRead(2));
+		getDistanceValue(), analogRead(0), analogRead(1), analogRead(2), analogRead(3));
 
 	Serial.println(buffer);
 }
