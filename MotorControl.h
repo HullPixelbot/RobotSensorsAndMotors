@@ -199,12 +199,13 @@ volatile unsigned long rightTimeSinceLastStep;
 volatile unsigned long timeToLeft;
 volatile unsigned long timeToRight;
 
+
 // If we try to trigger an interrupt too soon after the current one
 // this causes problems. If the time to the next interrupt is less than 
 // this figure we act on it now and then add the latency to the time of the 
 // next tick
 
-const unsigned long interruptLatencyInMicroSecs = 100;
+const unsigned long interruptLatencyInMicroSecs = 150;
 
 // The lowest interval between steps that is allowed
 // used to calculate timed moves
@@ -290,7 +291,7 @@ void motorUpdate()
 	Timer1.detachInterrupt();
 }
 
-void startMotor(unsigned long stepLimit, unsigned long microSecsPerPulse, bool forward,
+inline void startMotor(unsigned long stepLimit, unsigned long microSecsPerPulse, bool forward,
 	volatile unsigned long * motorStepLimit, volatile unsigned long * motorPulseInterval,
 	volatile char * motorDelta, volatile char * motorPos)
 {

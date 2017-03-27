@@ -29,7 +29,7 @@ byte diagnosticsOutputLevel = 0;
 
 long delayEndTime;
 
-#define COMMAND_BUFFER_SIZE 20
+#define COMMAND_BUFFER_SIZE 60
 
 // Set command terminator to CR
 
@@ -1663,7 +1663,7 @@ void measureDistanceAndJump()
 		return;
 	}
 
-	int measuredDistance = getDistanceValue();
+	int measuredDistance = getDistanceValueInt();
 
 #ifdef COMMAND_MEASURE_DEBUG
 	Serial.print(F("Measured Distance: "));
@@ -1906,7 +1906,7 @@ void remoteManagement()
 	}
 }
 
-const String version = "Version 2.1";
+const String version = "Version 3.0";
 
 // IV - information display version
 
@@ -1926,7 +1926,8 @@ void displayDistance()
 	{
 		Serial.println(F("IDOK"));
 	}
-	Serial.println(getDistanceValue());
+	Serial.println(getDistanceValueFloat());
+	Serial.println(getDistanceValueInt());
 }
 
 void printStatus()
@@ -1983,7 +1984,7 @@ void sendSensorReadings()
 
 	sprintf(buffer, "{\"version\":%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d]}\r",
 		1, // version 1
-		getDistanceValue(), analogRead(0), analogRead(1), analogRead(2));
+		getDistanceValueInt(), analogRead(0), analogRead(1), analogRead(2));
 
 	Serial.println(buffer);
 }

@@ -47,19 +47,24 @@ void setup() {
 	Serial.println(version);
 
 	// Uncomment to test the distance sensor
-	//directDistanceReadTest();
+	// Repeatedly sends readings
+	//testDistanceSensor();
 
 	Serial.println(F("Starting"));
 	setupMotors();
-	setupDistanceSensor();
+	setupDistanceSensor(25);
 	setupRemoteControl();
 	startLights();
-	displayBusyPixelWait(12, 0, 0, 255);
+	displayBusyPixelWait(6, 0, 255, 255);
 	startProgramExecution(STORED_PROGRAM_OFFSET);
 }
 
 
 void loop() {
 	updateProgramExcecution();
+	updateDistanceSensor();
+//	Serial.println(".");
+//	int x = getDistanceValueInt();
+//	Serial.println(x);
 	updateLightsAndDelay(!commandsNeedFullSpeed());
 }
