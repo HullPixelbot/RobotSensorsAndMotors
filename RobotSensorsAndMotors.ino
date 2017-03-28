@@ -63,8 +63,5 @@ void setup() {
 void loop() {
 	updateProgramExcecution();
 	updateDistanceSensor();
-//	Serial.println(".");
-//	int x = getDistanceValueInt();
-//	Serial.println(x);
 	updateLightsAndDelay(!commandsNeedFullSpeed());
 }

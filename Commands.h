@@ -1906,7 +1906,7 @@ void remoteManagement()
 	}
 }
 
-const String version = "Version 3.0";
+const String version = "Version 3.1";
 
 // IV - information display version
 
@@ -1926,7 +1926,6 @@ void displayDistance()
 	{
 		Serial.println(F("IDOK"));
 	}
-	Serial.println(getDistanceValueFloat());
 	Serial.println(getDistanceValueInt());
 }
 
