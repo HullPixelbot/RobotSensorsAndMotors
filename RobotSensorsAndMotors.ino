@@ -45,10 +45,12 @@
 #include "Script.h"
 
 void setup() {
+
 	Serial.begin(1200);
 	Serial.println(version);
 
-	testScript();
+	// Uncomment to test the script engine
+	// testScript();
 
 	// Uncomment to test the distance sensor
 	// Repeatedly sends readings

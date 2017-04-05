@@ -50,6 +50,12 @@ char remoteCommand[COMMAND_BUFFER_SIZE];
 char * remotePos;
 char * remoteLimit;
 
+// Variable management
+// Uses the decode buffer pointers
+//
+
+#include "Variables.h"
+
 ///////////////////////////////////////////////////////////
 /// Serial comms 
 ///////////////////////////////////////////////////////////
@@ -124,6 +130,7 @@ void startProgramExecution(int programPosition)
 		Serial.print(F(".Starting program execution at: "));
 		Serial.println(programPosition);
 #endif
+		clearVariables();
 		programCounter = programPosition;
 		programBase = programPosition;
 		programState = PROGRAM_ACTIVE;
@@ -1940,7 +1947,6 @@ void printStatus()
 
 }
 
-
 // IMddd - set the debugging diagnostics level
 
 //#define SET_MESSAGING_DEBUG 
@@ -2038,6 +2044,42 @@ void information()
 	}
 }
 
+void variableManagement()
+{
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		Serial.println(F("FAIL: missing variable command character"));
+		return;
+	}
+
+#ifdef COMMAND_DEBUG
+	Serial.println(F(".**variable management: "));
+#endif
+
+	char commandCh = *decodePos;
+
+#ifdef COMMAND_DEBUG
+	Serial.print(F(".   Download command : "));
+	Serial.println(commandCh);
+#endif
+
+	decodePos++;
+
+	switch (commandCh)
+	{
+	case 'C':
+	case 'c':
+		clearVariables();
+		break;
+
+	case 'S':
+	case 's':
+		setVariable();
+		break;
+	}
+}
+
+
 void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 {
 	decodePos = commandDecodePos;
@@ -2084,6 +2126,10 @@ void processCommand(char * commandDecodePos, char * comandDecodeLimit)
 	case 'R':
 	case 'r':
 		remoteManagement();
+		break;
+	case 'V':
+	case 'v':
+		variableManagement();
 		break;
 	default:
 #ifdef COMMAND_DEBUG
