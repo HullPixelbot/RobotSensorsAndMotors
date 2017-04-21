@@ -709,7 +709,5 @@ int timedMoveArcRobot(float radius, float angle, float timeToMoveInSeconds)
 	{
 		return timedMoveDistanceInMM(rightDistanceToMove, leftDistanceToMove, timeToMoveInSeconds);
 	}
-
-
 }
 

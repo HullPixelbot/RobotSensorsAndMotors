@@ -6,6 +6,8 @@
 
 // Physical connections for Arduino Pro Mini
 
+const int major_version = 3;
+const int minor_version = 2;
 
 // Left motor D4:  Blue   - 28BYJ48 pin 1
 // Left motor D5:  Pink   - 28BYJ48 pin 2
@@ -47,7 +49,8 @@
 void setup() {
 
 	Serial.begin(1200);
-	Serial.println(version);
+
+	displayVersion();
 
 	// Uncomment to test the script engine
 	// testScript();

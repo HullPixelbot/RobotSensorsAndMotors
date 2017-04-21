@@ -2,24 +2,313 @@
 // Variables can be given names, stored and evaluated
 // Simple two operand expressions only
 
-#define NUMBER_OF_VARIABLES 10
-#define MAX_VARIABLE_NAME_LENGTH 5
+#define NUMBER_OF_VARIABLES 20
+#define MAX_VARIABLE_NAME_LENGTH 10
+
+#define INVALID_VARIABLE_NAME -1
+#define NO_ROOM_FOR_VARIABLE -2
+#define VARIABLE_NOT_FOUND -3
+#define VARIABLE_NAME_TOO_LONG -4
+#define VARIABLE_NAME_OK -5
+#define OPERAND_OK -6
+#define USING_UNASSIGNED_VARIABLE -7
+
+//#define VAR_DEBUG
+
+struct op
+{
+	char operatorCh;
+	int(*evaluator) (int, int);
+};
+
+int evaluatePlus(int op1, int op2)
+{
+	return op1 + op2;
+}
+
+struct op addOp = { '+', evaluatePlus };
+
+int evaluateMinus(int op1, int op2)
+{
+	return op1 - op2;
+}
+
+struct op minusOp = { '-', evaluateMinus };
+
+
+int evaluateTimes(int op1, int op2)
+{
+	return op1 * op2;
+}
+
+struct op timesOp = { '*', evaluateTimes };
+
+int evaluateDivide(int op1, int op2)
+{
+	return op1 / op2;
+}
+
+struct op divideOp = { '/', evaluateDivide };
+
+#define NUMBER_OF_ARITHMETIC_OPERATORS 4
+
+struct op * operators[NUMBER_OF_ARITHMETIC_OPERATORS] = { &addOp, &minusOp, &timesOp, &divideOp };
+
+bool validOperator(char ch)
+{
+	for (int i = 0; i < NUMBER_OF_ARITHMETIC_OPERATORS; i++)
+	{
+		if (ch == operators[i]->operatorCh)
+			return true;
+	}
+	return false;
+}
+
+op * findOperator(char ch)
+{
+	for (int i = 0; i < NUMBER_OF_ARITHMETIC_OPERATORS; i++)
+	{
+		if (ch == operators[i]->operatorCh)
+			return operators[i];
+	}
+	return NULL;
+}
+
+struct logicalOp
+{
+	char * operatorCh;
+	bool(*evaluator) (int, int);
+};
+
+bool equalsOp(int op1, int op2)
+{
+	return op1 == op2;
+}
+
+struct logicalOp logicEquals = { "==",equalsOp };
+
+bool notEqualsOp(int op1, int op2)
+{
+	return op1 != op2;
+}
+
+struct logicalOp logicNotEquals = { "!=",notEqualsOp };
+
+bool lessThanOp(int op1, int op2)
+{
+	return op1 < op2;
+}
+
+struct logicalOp logicLessThan = { "<",lessThanOp };
+
+bool greaterThanOp(int op1, int op2)
+{
+	return op1 > op2;
+}
+
+struct logicalOp logicGreaterThan = { ">",greaterThanOp };
+
+bool lessThanEqualsOp(int op1, int op2)
+{
+	return op1 <= op2;
+}
+
+struct logicalOp logicLessThanEquals = { "<=",lessThanEqualsOp };
+
+bool greaterThanEqualsOp(int op1, int op2)
+{
+	return op1 >= op2;
+}
+
+struct logicalOp logicGreaterThanEquals = { ">=",greaterThanEqualsOp };
+
+#define NUMBER_OF_LOGICAL_OPERATORS 6
+
+struct logicalOp * logicalOps[NUMBER_OF_LOGICAL_OPERATORS] = { &logicEquals, &logicNotEquals,
+	&logicLessThan, &logicGreaterThan,
+	&logicLessThanEquals, &logicGreaterThanEquals };
+
+struct logicalOp * findLogicalOp(char * text)
+{
+	// Some logical operators are two character
+	// If they are, the second character is always equals
+
+	char * firstChar = text;
+	char * secondChar = text + 1;
+
+	for (int i = 0; i < NUMBER_OF_LOGICAL_OPERATORS; i++)
+	{
+		struct logicalOp * op = logicalOps[i];
+		int opLength = strlen(op->operatorCh);
+
+		if (*secondChar == '=')
+		{
+			if (opLength == 1)
+				continue;
+
+			// two character operator in program code
+			if (op->operatorCh[0] == *firstChar)
+			{
+				return op;
+			}
+		}
+		else
+		{
+			if (opLength == 2)
+				continue;
+
+			// one character operator in program code
+			if (op->operatorCh[0] == *firstChar)
+			{
+				return op;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+struct reading {
+	char * name;
+	int(*reader)(void);
+};
+
+int readDistance()
+{
+	return getDistanceValueInt();
+}
+
+int readLight()
+{
+	return analogRead(0);
+}
+
+inline bool isReadingNameStart(char * ch)
+{
+	return (isalpha(*ch));
+}
+
+inline bool isReadingNameChar(char * ch)
+{
+	return (isAlphaNumeric(*ch));
+}
+
+#define READING_START_CHAR '%'
+#define NO_OF_HARDWARE_READERS 2
+
+struct reading light = { "light", readLight };
+
+struct reading distance = { "dist", readDistance };
+
+struct reading * readers[NO_OF_HARDWARE_READERS] = { &distance, &light };
+
+bool validReading(char * text)
+{
+	if (!isReadingNameStart(text))
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Reading name first character not valid"));
+		}
+		return;
+	}
+
+	for (int i = 0; i < NO_OF_HARDWARE_READERS; i++)
+	{
+		struct reading * currentReader = readers[i];
+
+		char * currentChar = text;
+		char * nameChar = currentReader->name;
+
+		while (true)
+		{
+			if (!*nameChar)
+			{
+				// reached the end of the current reader 
+				// If the corresponding character in the program is not 
+				// a valid part of a name, we can consider this a match
+				if (!isReadingNameChar(currentChar))
+					return true;
+			}
+
+			if (*nameChar != *currentChar)
+			{
+				// not the same
+				// move on to the next one
+				break;
+			}
+
+			// These two match, move on to the next one
+
+			nameChar++;
+			currentChar++;
+		}
+	}
+	// If we get here we've spun through all the names and not found a match
+	return false;
+}
+
+struct reading * getReading(char * text)
+{
+	if (!isReadingNameStart(text))
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Reading name first character not valid"));
+		}
+		return NULL;
+	}
+
+	for (int i = 0; i < NO_OF_HARDWARE_READERS; i++)
+	{
+		struct reading * currentReader = readers[i];
+
+		char * currentChar = text;
+		char * nameChar = currentReader->name;
+
+		while (true)
+		{
+			if (!*nameChar)
+			{
+				// reached the end of the current reader 
+				// If the corresponding character in the program is not 
+				// a valid part of a name, we can consider this a match
+				if (!isReadingNameChar(currentChar))
+					return currentReader;
+			}
+
+			if (*nameChar != *currentChar)
+			{
+				// not the same
+				// move on to the next one
+				break;
+			}
+
+			// These two match, move on to the next one
+
+			nameChar++;
+			currentChar++;
+		}
+	}
+	// If we get here we've spun through all the names and not found a match
+	return NULL;
+}
 
 struct variable
 {
 	bool empty;
+	bool unassigned;
 	// add one to the end for the terminating zero
-	char name[MAX_VARIABLE_NAME_LENGTH+1];
+	char name[MAX_VARIABLE_NAME_LENGTH + 1];
 	int value;
 };
 
-variable variables [NUMBER_OF_VARIABLES];
-
-#define VAR_DEBUG
+variable variables[NUMBER_OF_VARIABLES];
 
 void clearVariableSlot(int position)
 {
 	variables[position].empty = true;
+	variables[position].unassigned = true;
 	variables[position].value = 0;
 	variables[position].name[0] = 0;
 }
@@ -32,12 +321,28 @@ void clearVariables()
 	{
 		clearVariableSlot(i);
 	}
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.print(F("VCOK"));
+	}
 }
 
-#define INVALID_VARIABLE_NAME -1
-#define NO_ROOM_FOR_VARIABLE -2
-#define VARIABLE_NOT_FOUND -3
-#define VARIABLE_NAME_TOO_LONG -4
+void setVariable(int position, int value)
+{
+	variables[position].value = value;
+	variables[position].unassigned = false;
+}
+
+int getVariable(int position)
+{
+	return variables[position].value;
+}
+
+bool isAssigned(int position)
+{
+	return !variables[position].unassigned;
+}
 
 inline bool isVariableNameStart(char * ch)
 {
@@ -52,6 +357,27 @@ inline bool isVariableNameChar(char * ch)
 inline bool variableSlotEmpty(int position)
 {
 	return variables[position].empty;
+}
+
+int checkIdentifier(char * var)
+{
+	if (!isVariableNameStart(var))
+		return INVALID_VARIABLE_NAME;
+
+	var++;
+
+	int size = 1;
+
+	while (isVariableNameChar(var))
+	{
+		var++;
+		size++;
+	}
+
+	if (size > MAX_VARIABLE_NAME_LENGTH)
+		return VARIABLE_NAME_TOO_LONG;
+
+	return VARIABLE_NAME_OK;
 }
 
 bool matchVariable(int position, char * text)
@@ -140,7 +466,7 @@ int findVariable(char * name)
 	{
 #ifdef VAR_DEBUG
 		Serial.print(F("    Checking variable: "));
-		Serial.println(F("i"));
+		Serial.println(i);
 #endif
 		if (matchVariable(i, name))
 		{
@@ -215,15 +541,18 @@ int createVariable()
 		if (!isVariableNameChar(decodePos))
 		{
 			// If we are 
-			if(i<(MAX_VARIABLE_NAME_LENGTH-1))
-			// end of variable name
-			// end the name string
-			// Note that we declared this one element larger to make room 
-			// for the zero
-			variables[position].name[i+1] = 0;
-			break;
+			if (i<(MAX_VARIABLE_NAME_LENGTH - 1))
+				// end of variable name
+				// end the name string
+				// Note that we declared this one element larger to make room 
+				// for the zero
+				variables[position].name[i + 1] = 0;
+			variables[position].empty = false;
+			return position;
 		}
 	}
+
+	// if we get here we didn't find an empty slot
 
 	if (i == MAX_VARIABLE_NAME_LENGTH)
 	{
@@ -231,23 +560,375 @@ int createVariable()
 		clearVariableSlot(position);
 		return VARIABLE_NAME_TOO_LONG;
 	}
+}
 
-	variables[position].empty = false;
+// Variable management
+// Uses the decode buffer pointers
+//
 
-	return position;
+//#define READ_INTEGER_DEBUG
+
+bool readInteger(int * result)
+{
+#ifdef READ_INTEGER_DEBUG
+	Serial.println(".**readInteger");
+#endif
+	int sign = 1;
+	int resultValue = 0;
+
+	if (*decodePos == '-')
+	{
+#ifdef READ_INTEGER_DEBUG
+		Serial.println(".  negative number");
+#endif
+		sign = -1;
+		decodePos++;
+	}
+
+	if (*decodePos == '+')
+	{
+#ifdef READ_INTEGER_DEBUG
+		Serial.println(".  positive number");
+#endif
+		decodePos++;
+	}
+
+	while (decodePos != decodeLimit)
+	{
+		char ch = *decodePos;
+
+#ifdef READ_INTEGER_DEBUG
+		Serial.print(".  processing: ");
+		Serial.println((char)ch);
+#endif
+
+		if (ch<'0' | ch>'9')
+		{
+#ifdef READ_INTEGER_DEBUG
+			Serial.println(".  not a digit ");
+#endif
+			break;
+		}
+
+		resultValue = (resultValue * 10) + (ch - '0');
+
+#ifdef READ_INTEGER_DEBUG
+		Serial.print(".  result: ");
+		Serial.println(resultValue);
+#endif
+
+		decodePos++;
+	}
+
+	resultValue = resultValue * sign;
+
+#ifdef READ_INTEGER_DEBUG
+	Serial.print(".  returning: ");
+	Serial.println(resultValue);
+#endif
+
+	*result = resultValue;
+	return true;
+}
+
+// Gets an operand from the current data feed
+// This will either be a literal value, the contents of a variable or the contents of a system variable
+// it returns an error code
+
+int getOperand(int * result)
+{
+#ifdef VAR_DEBUG
+	Serial.println(F("Get operand"));
+#endif
+	if (isVariableNameStart(decodePos))
+	{
+#ifdef VAR_DEBUG
+		Serial.println(F("    Getting variable operand"));
+#endif
+		// its a variable
+		int position = findVariable(decodePos);
+		if (position == VARIABLE_NOT_FOUND)
+		{
+			return VARIABLE_NOT_FOUND;
+		}
+
+		// move down to the end of the name
+		decodePos = decodePos + getVariableNameLength(position);
+
+		if (!isAssigned(position))
+		{
+			return USING_UNASSIGNED_VARIABLE;
+		}
+
+		*result = variables[position].value;
+
+		return OPERAND_OK;
+	}
+
+	// numeric values can start with a digit or a sign character
+
+	if (isdigit(*decodePos) | (*decodePos=='+') | (*decodePos == '-'))
+	{
+#ifdef VAR_DEBUG
+		Serial.print(F("    Getting literal operand"));
+#endif
+		readInteger(result);
+		return true;
+	}
+
+	if (*decodePos == READING_START_CHAR)
+	{
+		// Move past the start character
+
+		decodePos++;
+
+		struct reading * reader = getReading(decodePos);
+
+		if (reader == NULL)
+		{
+			if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+			{
+				Serial.println(F("Invalid hardware reading identifier"));
+			}
+			return false;
+		}
+
+		decodePos = decodePos + strlen(reader->name);
+
+		*result = reader->reader();
+
+		return true;
+	}
+
+	return false;
+}
+
+// decodepos points to the first character of a value sequence
+// It is either a literal, variable or two operand expression
+
+bool getValue(int * result)
+{
+	// Now we are at the start of a value to parse
+
+	int firstOperand;
+	int getOperandResult = getOperand(&firstOperand);
+
+#ifdef VAR_DEBUG
+	Serial.print(F("    get operand result"));
+	Serial.println(getOperandResult);
+#endif
+
+	if (getOperandResult == VARIABLE_NOT_FOUND)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Value first operand variable not found"));
+		}
+		return false;
+	}
+
+	if (getOperandResult == USING_UNASSIGNED_VARIABLE)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Value first operand variable not assigned a value"));
+		}
+		return false;
+	}
+
+#ifdef VAR_DEBUG
+
+	Serial.print("Operand 1: ");
+	Serial.println(firstOperand);
+
+	Serial.print("Decode pos: ");
+	Serial.println((int)*decodePos);
+
+	Serial.print("Decode limit: ");
+	Serial.println((int)*decodeLimit);
+#endif
+
+	if (*decodePos == STATEMENT_TERMINATOR || *decodePos == ',')
+	{
+#ifdef VAR_DEBUG
+		Serial.println("Single operand");
+		Serial.println(firstOperand);
+#endif
+		*result = firstOperand;
+		return true;
+	}
+
+	if (!validOperator(*decodePos))
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS invalid operator"));
+			return false;
+		}
+	}
+
+	op * activeOperator = findOperator(*decodePos);
+
+
+	decodePos++;
+
+	int secondOperand;
+	getOperandResult = getOperand(&secondOperand);
+
+#ifdef VAR_DEBUG
+	Serial.print(F("    get operand result"));
+	Serial.println(getOperandResult);
+#endif
+
+	if (getOperandResult == VARIABLE_NOT_FOUND)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS second operand variable not found"));
+		}
+		return false;
+	}
+
+	if (getOperandResult == USING_UNASSIGNED_VARIABLE)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS second operand variable not assigned a value"));
+		}
+		return false;
+	}
+
+	*result = activeOperator->evaluator(firstOperand, secondOperand);
+
+	return true;
 }
 
 // called from the command processor
 // the global variable decodePos holds the position in the decode array (first character
 // of the variable name) and the global variable decodeLimit the end of the array
 
-void setVariable() 
+//#define TEST_CONDITION_DEBUG
+
+bool testCondition(bool * result)
+{
+
+	int firstOperand;
+	int getOperandResult = getOperand(&firstOperand);
+
+#ifdef TEST_CONDITION_DEBUG
+	Serial.print(F("    get operand result"));
+	Serial.println(getOperandResult);
+	Serial.print(F("    first operand"));
+	Serial.println(firstOperand);
+#endif
+
+	if (getOperandResult == VARIABLE_NOT_FOUND)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Value first operand in logical expression variable not found"));
+		}
+		return false;
+	}
+
+	if (getOperandResult == USING_UNASSIGNED_VARIABLE)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("Value first operand in logical expresion variable not assigned a value"));
+		}
+		return false;
+	}
+
+	logicalOp * op = findLogicalOp(decodePos);
+
+	if (op == NULL)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("invalid logical operator in logical operation"));
+		}
+		return false;
+	}
+
+#ifdef TEST_CONDITION_DEBUG
+	Serial.print(F("    operator: "));
+	Serial.println(op->operatorCh);
+#endif
+
+	decodePos = decodePos + strlen(op->operatorCh);
+
+	int secondOperand;
+	getOperandResult = getOperand(&secondOperand);
+
+#ifdef TEST_CONDITION_DEBUG
+	Serial.print(F("    get operand result"));
+	Serial.println(getOperandResult);
+	Serial.print(F("    second operand"));
+	Serial.println(secondOperand);
+#endif
+
+	if (getOperandResult == VARIABLE_NOT_FOUND)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS second operand in logical expression variable not found"));
+		}
+		return false;
+	}
+
+	if (getOperandResult == USING_UNASSIGNED_VARIABLE)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS second operand in logical expression variable not assigned a value"));
+		}
+		return false;
+	}
+
+#ifdef TEST_CONDITION_DEBUG
+	Serial.print(F("    get operand result"));
+	Serial.println(getOperandResult);
+	Serial.print(F("    second operand"));
+	Serial.println(secondOperand);
+#endif
+
+	*result = op->evaluator(firstOperand, secondOperand);
+
+#ifdef TEST_CONDITION_DEBUG
+	Serial.print(F("    comparision result"));
+	Serial.println(*result);
+#endif
+
+	return true;
+}
+
+void setVariable()
 {
 
 #ifdef VAR_DEBUG
 	Serial.println(F("setting variable"));
 
 #endif
+
+	int checkResult = checkIdentifier(decodePos);
+
+	switch (checkResult)
+	{
+	case INVALID_VARIABLE_NAME:
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("VS invalid variable name"));
+		}
+		return;
+
+	case VARIABLE_NAME_TOO_LONG:
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.print(F("VS variable name too long"));
+		}
+		return;
+	}
 
 	char * variableStart = decodePos;
 
@@ -257,16 +938,29 @@ void setVariable()
 
 	if (position == INVALID_VARIABLE_NAME)
 	{
-		Serial.println(F("Invalid variable name"));
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS invalid variable name"));
+		}
 		return;
 	}
 
 	if (position == VARIABLE_NOT_FOUND)
 	{
+
 #ifdef VAR_DEBUG
 		Serial.println(F("Variable not found"));
 #endif
-		createVariable();
+		position = createVariable();
+
+		if (position == NO_ROOM_FOR_VARIABLE)
+		{
+			if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+			{
+				Serial.println(F("VS no room for variable"));
+			}
+			return;
+		}
 	}
 	else
 	{
@@ -276,6 +970,52 @@ void setVariable()
 		// we have the variable
 		// move down to the end of the name
 		decodePos = decodePos + getVariableNameLength(position);
-		Serial.println(variables[position].name);
+	}
+
+	if (*decodePos != '=')
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VS no equals after variable name"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	int result;
+
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	setVariable(position, result);
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.println(F("VSOK"));
+	}
+}
+
+void viewVariable()
+{
+	int position = findVariable(decodePos);
+	if (position == VARIABLE_NOT_FOUND)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("VV variable not found"));
+			return;
+		}
+	}
+
+	if (!isAssigned(position))
+	{
+		Serial.println(F("Unassigned"));
+	}
+	else
+	{
+		Serial.println(getVariable(position));
 	}
 }

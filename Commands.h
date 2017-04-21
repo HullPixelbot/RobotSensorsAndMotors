@@ -50,9 +50,9 @@ char remoteCommand[COMMAND_BUFFER_SIZE];
 char * remotePos;
 char * remoteLimit;
 
-// Variable management
-// Uses the decode buffer pointers
-//
+#ifdef COMMAND_DEBUG
+#define READ_INTEGER_DEBUG
+#endif
 
 #include "Variables.h"
 
@@ -230,7 +230,7 @@ void startDownloadingCode(int downloadPosition)
 
 	resetLineStorageState();
 
-	startBusyPixel(128,128,128);
+	startBusyPixel(128, 128, 128);
 
 	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 	{
@@ -357,72 +357,6 @@ void storeReceivedByte(byte b)
 
 }
 
-#ifdef COMMAND_DEBUG
-#define READ_INTEGER_DEBUG
-#endif
-
-int readInteger()
-{
-#ifdef READ_INTEGER_DEBUG
-	Serial.println(".**readInteger");
-#endif
-	int sign = 1;
-	int result = 0;
-
-	if (*decodePos == '-')
-	{
-#ifdef READ_INTEGER_DEBUG
-		Serial.println(".  negative number");
-#endif
-		sign = -1;
-		decodePos++;
-	}
-
-	if (*decodePos == '+')
-	{
-#ifdef READ_INTEGER_DEBUG
-		Serial.println(".  positive number");
-#endif
-		decodePos++;
-	}
-
-	while (decodePos != decodeLimit)
-	{
-		char ch = *decodePos;
-
-#ifdef READ_INTEGER_DEBUG
-		Serial.print(".  processing: ");
-		Serial.println((char)ch);
-#endif
-
-		if (ch<'0' | ch>'9')
-		{
-#ifdef READ_INTEGER_DEBUG
-			Serial.println(".  not a digit ");
-#endif
-			break;
-		}
-
-		result = (result * 10) + (ch - '0');
-
-#ifdef READ_INTEGER_DEBUG
-		Serial.print(".  result: ");
-		Serial.println(result);
-#endif
-
-		decodePos++;
-	}
-
-	result = result * sign;
-
-#ifdef READ_INTEGER_DEBUG
-	Serial.print(".  returning: ");
-	Serial.println(result);
-#endif
-
-	return result;
-}
-
 void resetCommand()
 {
 #ifdef COMMAND_DEBUG
@@ -455,14 +389,17 @@ void remoteMoveForwards()
 		}
 		return;
 	}
-		
-	forwardMoveDistance = readInteger();
+
+	if (!getValue(&forwardMoveDistance))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.print(F("MFOK"));
+			Serial.println(F("MFOK"));
 		}
 		fastMoveDistanceInMM(forwardMoveDistance, forwardMoveDistance);
 		return;
@@ -479,15 +416,20 @@ void remoteMoveForwards()
 		return;
 	}
 
-	int forwardMoveTime = readInteger();
+	int forwardMoveTime;
 
-	int moveResult = timedMoveDistanceInMM(forwardMoveDistance, forwardMoveDistance, (float)forwardMoveTime/10.0);
+	if (!getValue(&forwardMoveTime))
+	{
+		return;
+	}
+
+	int moveResult = timedMoveDistanceInMM(forwardMoveDistance, forwardMoveDistance, (float)forwardMoveTime / 10.0);
 
 	if (moveResult == 0)
 	{
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
-			Serial.print(F("MFOK"));
+			Serial.println(F("MFOK"));
 		}
 	}
 	else
@@ -523,7 +465,12 @@ void remoteMoveAngle()
 		return;
 	}
 
-	int radius = readInteger();
+	int radius;
+
+	if (!getValue(&radius))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
@@ -545,7 +492,12 @@ void remoteMoveAngle()
 		return;
 	}
 
-	int angle = readInteger();
+	int angle;
+
+	if (!getValue(&angle))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
@@ -568,7 +520,12 @@ void remoteMoveAngle()
 		return;
 	}
 
-	int time = readInteger();
+	int time;
+
+	if (!getValue(&time))
+	{
+		return;
+	}
 
 #ifdef MOVE_ANGLE_DEBUG
 	Serial.print("    radius: ");
@@ -619,10 +576,15 @@ void remoteMoveMotors()
 		{
 			Serial.println(F("MMFail: no left distance"));
 		}
-		return ;
+		return;
 	}
 
-	int leftDistance = readInteger();
+	int leftDistance;
+
+	if (!getValue(&leftDistance))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
@@ -644,7 +606,12 @@ void remoteMoveMotors()
 		return;
 	}
 
-	int rightDistance = readInteger();
+	int rightDistance;
+
+	if (!getValue(&rightDistance))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
@@ -667,7 +634,12 @@ void remoteMoveMotors()
 		return;
 	}
 
-	int time = readInteger();
+	int time;
+
+	if (!getValue(&time))
+	{
+		return;
+	}
 
 #ifdef MOVE_MOTORS_DEBUG
 	Serial.print("    ld: ");
@@ -722,7 +694,12 @@ void remoteConfigWheels()
 		return;
 	}
 
-	int leftDiameter = readInteger();
+	int leftDiameter;
+
+	if (!getValue(&leftDiameter))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
 	{
@@ -744,7 +721,12 @@ void remoteConfigWheels()
 		return;
 	}
 
-	int rightDiameter = readInteger();
+	int rightDiameter;
+
+	if (!getValue(&rightDiameter))
+	{
+		return;
+	}
 
 	if (*decodePos == STATEMENT_TERMINATOR)
 	{
@@ -766,7 +748,12 @@ void remoteConfigWheels()
 		return;
 	}
 
-	int spacing = readInteger();
+	int spacing;
+
+	if (!getValue(&spacing))
+	{
+		return;
+	}
 
 #ifdef CONFIG_WHEELS_DEBUG
 	Serial.print("    ld: ");
@@ -815,8 +802,13 @@ void remoteRotateRobot()
 		return;
 	}
 
-	rotateAngle = readInteger();
-	
+	rotateAngle;
+
+	if (!getValue(&rotateAngle))
+	{
+		return;
+	}
+
 #ifdef ROTATE_DEBUG
 	Serial.print(".  Rotating: ");
 	Serial.println(rotateAngle);
@@ -843,7 +835,12 @@ void remoteRotateRobot()
 		return;
 	}
 
-	int rotateTimeInTicks = readInteger();
+	int rotateTimeInTicks;
+
+	if (!getValue(&rotateTimeInTicks))
+	{
+		return;
+	}
 
 	int moveResult = timedRotateRobot(rotateAngle, rotateTimeInTicks / 10.0);
 
@@ -977,7 +974,15 @@ void remoteMoveControl()
 
 bool readColour(byte *r, byte *g, byte*b)
 {
-	*r = readInteger();
+	int result;
+
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	*r = (byte)result;
+
 #ifdef PIXEL_COLOUR_DEBUG
 	Serial.print(".  Red: ");
 	Serial.println(*r);
@@ -1001,9 +1006,15 @@ bool readColour(byte *r, byte *g, byte*b)
 			Serial.println(F("FAIL: mising colours after red in readColor"));
 		}
 		return false;
-		}
+	}
 
-	*g = readInteger();
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	*g = (byte)result;
+
 #ifdef PIXEL_COLOUR_DEBUG
 	Serial.print(".  Green: ");
 	Serial.println(*g);
@@ -1020,7 +1031,13 @@ bool readColour(byte *r, byte *g, byte*b)
 		return false;
 	}
 
-	*b = readInteger();
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	*b = (byte)result;
+
 #ifdef PIXEL_COLOUR_DEBUG
 	Serial.print(".  Blue: ");
 	Serial.println(*b);
@@ -1064,7 +1081,15 @@ void remoteFadeToColor()
 	Serial.println(".**remoteFadeToColour: ");
 #endif
 
-	byte no = readInteger();
+	int result;
+
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	byte no = (byte)result;
+
 	if (no < 1)no = 1;
 	if (no > 20)no = 20;
 
@@ -1100,7 +1125,7 @@ void remoteFadeToColor()
 
 	if (readColour(&r, &g, &b))
 	{
-		transitionToColor(no,r, g, b);
+		transitionToColor(no, r, g, b);
 		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
 		{
 			Serial.println(F("OK"));
@@ -1116,7 +1141,15 @@ void remoteSetFlickerSpeed()
 	Serial.println(".**remoteSetFlickerSpeed: ");
 #endif
 
-	byte no = readInteger();
+	int result;
+
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	byte no = (byte)result;
+
 
 #ifdef PIXEL_COLOUR_DEBUG
 	Serial.print(".  Setting: ");
@@ -1141,7 +1174,15 @@ void remoteSetIndividualPixel()
 	Serial.println(".**remoteSetIndividualPixel: ");
 #endif
 
-	byte no = readInteger();
+	int result;
+
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	byte no = (byte)result;
+
 #ifdef PIXEL_COLOUR_DEBUG
 	Serial.print(".  Setting: ");
 	Serial.println(no);
@@ -1271,7 +1312,10 @@ void remoteDelay()
 		return;
 	}
 
-	delayValueInTenthsIOfASecond = readInteger();
+	if (!getValue(&delayValueInTenthsIOfASecond))
+	{
+		return;
+	}
 
 #ifdef COMMAND_DELAY_DEBUG
 	Serial.print(".  Delaying: ");
@@ -1547,11 +1591,11 @@ void jumpToLabel()
 void jumpToLabelCoinToss()
 {
 #ifdef JUMP_TO_LABEL_COIN_DEBUG
-	Serial.println(F(".**jump to label coin toss"));send
+	Serial.println(F(".**jump to label coin toss")); send
 
 #endif
 
-	char * labelPos = decodePos;
+		char * labelPos = decodePos;
 	char * labelSearch = decodePos;
 
 	int labelStatementPos = findLabelInProgram(decodePos, programBase);
@@ -1613,8 +1657,8 @@ void pauseWhenMotorsActive()
 	}
 }
 
-// Command CMddd,ccc
-// Jump to label if distance is less than given value
+// Command Ccddd,ccc
+// Jump to label if condition true
 
 //#define COMMAND_MEASURE_DEBUG
 
@@ -1625,7 +1669,12 @@ void measureDistanceAndJump()
 	Serial.println(F(".**measure disance and jump to label"));
 #endif
 
-	int distance = readInteger();
+	int distance;
+
+	if (!getValue(&distance))
+	{
+		return;
+	}
 
 #ifdef COMMAND_MEASURE_DEBUG
 	Serial.print(F(".  Distance: "));
@@ -1664,7 +1713,7 @@ void measureDistanceAndJump()
 	Serial.println(labelStatementPos);
 #endif
 
-	if(labelStatementPos < 0)
+	if (labelStatementPos < 0)
 	{
 		Serial.println(F("FAIL: label not found"));
 		return;
@@ -1703,6 +1752,89 @@ void measureDistanceAndJump()
 
 	// otherwise do nothing
 }
+
+//#define COMPARE_CONDITION_DEBUG
+
+void compareAndJump()
+{
+
+#ifdef COMPARE_CONDITION_DEBUG
+	Serial.println(F(".**test condition and jump to label"));
+#endif
+
+	bool result;
+
+	if (!testCondition(&result))
+	{
+		return;
+	}
+
+	if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+	{
+		Serial.print(F("CC"));
+	}
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("FAIL: mising dest"));
+		}
+		return;
+	}
+
+	decodePos++;
+
+	if (*decodePos == STATEMENT_TERMINATOR | decodePos == decodeLimit)
+	{
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("FAIL: mising dest"));
+		}
+		return;
+	}
+
+	int labelStatementPos = findLabelInProgram(decodePos, programBase);
+
+#ifdef COMPARE_CONDITION_DEBUG
+	Serial.print("Label statement pos: ");
+	Serial.println(labelStatementPos);
+#endif
+
+	if (labelStatementPos < 0)
+	{
+		Serial.println(F("FAIL: label not found"));
+		return;
+	}
+
+	if (result)
+	{
+#ifdef COMPARE_CONDITION_DEBUG
+		Serial.println(F("Condition true - taking jump"));
+#endif
+		// the label has been found - jump to it
+		programCounter = labelStatementPos;
+
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("jump"));
+		}
+	}
+	else
+	{
+#ifdef COMPARE_CONDITION_DEBUG
+		Serial.println("condition failed - continuing");
+#endif
+		if (diagnosticsOutputLevel & STATEMENT_CONFIRMATION)
+		{
+			Serial.println(F("continue"));
+		}
+	}
+
+	// otherwise do nothing
+}
+
+
 
 // Command CIccc
 // Jump to label if the motors are not running
@@ -1800,7 +1932,7 @@ void programControl()
 		jumpWhenMotorsInactive();
 		break;
 	case 'A':
-	case 'a': 
+	case 'a':
 		pauseWhenMotorsActive();
 		break;
 	case 'D':
@@ -1822,6 +1954,10 @@ void programControl()
 	case 'T':
 	case 't':
 		jumpToLabelCoinToss();
+		break;
+	case 'C':
+	case 'c':
+		compareAndJump();
 		break;
 	}
 }
@@ -1913,7 +2049,13 @@ void remoteManagement()
 	}
 }
 
-const String version = "Version 3.1";
+void printVersion()
+{
+	Serial.print(F("Version "));
+	Serial.print(major_version);
+	Serial.print(F("."));
+	Serial.println(minor_version);
+}
 
 // IV - information display version
 
@@ -1924,7 +2066,7 @@ void displayVersion()
 		Serial.println(F("IVOK"));
 	}
 
-	Serial.println(version);
+	printVersion();
 }
 
 void displayDistance()
@@ -1955,10 +2097,16 @@ void setMessaging()
 {
 
 #ifdef SET_MESSAGING_DEBUG
-		Serial.println(F(".**informationlevelset: "));
+	Serial.println(F(".**informationlevelset: "));
 #endif
+	int result;
 
-	byte no = readInteger();
+	if (!getValue(&result))
+	{
+		return;
+	}
+
+	byte no = (byte)result;
 
 #ifdef SET_MESSAGING_DEBUG
 	Serial.print(F(".  Setting: "));
@@ -1987,8 +2135,8 @@ void sendSensorReadings()
 {
 	char buffer[100];
 
-	sprintf(buffer, "{\"version\":%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d]}\r",
-		1, // version 1
+	sprintf(buffer, "{\"version\":%d.%d,\"distance\":[%d],\"lightLevel\":[%d,%d,%d]}\r",
+		major_version, minor_version,
 		getDistanceValueInt(), analogRead(0), analogRead(1), analogRead(2));
 
 	Serial.println(buffer);
@@ -2000,7 +2148,7 @@ void information()
 	{
 		Serial.println(F("FAIL: missing information command character"));
 		return;
-	}
+}
 
 #ifdef COMMAND_DEBUG
 	Serial.println(F(".**remoteProgramDownload: "));
@@ -2050,7 +2198,7 @@ void variableManagement()
 	{
 		Serial.println(F("FAIL: missing variable command character"));
 		return;
-	}
+}
 
 #ifdef COMMAND_DEBUG
 	Serial.println(F(".**variable management: "));
@@ -2075,6 +2223,11 @@ void variableManagement()
 	case 'S':
 	case 's':
 		setVariable();
+		break;
+
+	case 'V':
+	case 'v':
+		viewVariable();
 		break;
 	}
 }
@@ -2252,7 +2405,7 @@ bool exeuteProgramStatement()
 		{
 			haltProgramExecution();
 			return false;
-		}
+	}
 
 #ifdef PROGRAM_DEBUG
 		Serial.print(F(".    program byte: "));
@@ -2264,8 +2417,8 @@ bool exeuteProgramStatement()
 		if (programByte == STATEMENT_TERMINATOR)
 			return true;
 
-	}
 }
+	}
 
 //const char SAMPLE_CODE[] PROGMEM = { "PC255,0,0\rCD5\rCLtop\rPC0,0,255\rCD5\rPC0,255,255\rCD5\rPC255,0,255\rCD5\rCJtop\r" };
 const char SAMPLE_CODE[] PROGMEM = { "CLtop\rCM10,close\rPC255,0,0\rCJtop\rCLclose\rPC0,0,255\rCJtop\r" };
